@@ -3,29 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Oomly WhatsApp Bot Dashboard</title>
+    <title>Oomly Bot - MTN MoMo Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
     <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
         
         <div class="text-center mb-6">
-            <h1 class="text-xl font-bold tracking-tight text-orange-500">Oomly WhatsApp Bot</h1>
-            <p class="text-xs text-slate-400 mt-1">Self-Service Activation Portal</p>
+            <h1 class="text-xl font-bold tracking-tight text-orange-500">Oomly WhatsApp Suite</h1>
+            <p class="text-xs text-slate-400 mt-1">Instant MTN Mobile Money Activation</p>
         </div>
 
-        <!-- License Key Input -->
-        <div id="auth-panel" class="mb-4 bg-slate-950 p-3 border border-slate-800 rounded-xl space-y-2">
-            <label class="block text-[11px] font-semibold uppercase text-slate-400">Your Paid License Key</label>
-            <input id="admin-key" type="password" placeholder="Enter your license key" 
-                class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-orange-500" />
+        <!-- Mode Toggle Tabs -->
+        <div class="flex border-b border-slate-800 mb-4 text-xs text-center">
+            <button id="tab-momo" onclick="switchTab('momo')" class="w-1/2 py-2 text-orange-500 border-b-2 border-orange-500 font-bold">Pay via MTN MoMo</button>
+            <button id="tab-key" onclick="switchTab('key')" class="w-1/2 py-2 text-slate-400 font-medium">I Have a Key / Admin</button>
         </div>
 
-        <!-- Step 1: Phone Entry -->
-        <div id="step-1" class="space-y-4">
+        <!-- Section 1: MTN MoMo Payment View -->
+        <div id="momo-view" class="space-y-4">
             <div>
-                <label class="block text-xs font-medium text-slate-300 mb-1">Your WhatsApp Number</label>
-                <input id="phone" type="tel" placeholder="e.g. 256700000000" 
+                <label class="block text-xs font-medium text-slate-300 mb-1">MTN Mobile Money Phone Number</label>
+                <input id="momo-phone" type="tel" placeholder="e.g. 256770000000" 
+                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500" />
+            </div>
+            <button onclick="payWithMoMo()" id="btn-pay"
+                class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm py-2.5 rounded-lg transition">
+                Pay with MTN Mobile Money
+            </button>
+            <p id="momo-status" class="text-xs text-center text-slate-400 hidden"></p>
+        </div>
+
+        <!-- Section 2: Key / Pairing Entry -->
+        <div id="key-view" class="hidden space-y-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">License Key / Admin Key</label>
+                <input id="license-key" type="password" placeholder="Enter key (e.g. OOMLY-MOMO-XXXX)" 
+                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500" />
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">WhatsApp Phone Number</label>
+                <input id="phone" type="tel" placeholder="e.g. 256770000000" 
                     class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500" />
             </div>
             <button onclick="requestPairingCode()" id="btn-gen"
@@ -46,21 +64,8 @@
         <!-- Step 3: Active Dashboard -->
         <div id="dashboard-view" class="hidden space-y-4">
             <div class="text-center bg-emerald-950/40 border border-emerald-900/50 py-2 rounded-lg text-xs font-semibold text-emerald-400">
-                🟢 Bot Successfully Linked & Active
+                🟢 Bot Successfully Active
             </div>
-
-            <div class="space-y-2 pt-2">
-                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Features Enabled</p>
-                <div class="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs flex justify-between">
-                    <span>Anti-Delete Vault</span>
-                    <span class="text-emerald-400 font-semibold">Active</span>
-                </div>
-                <div class="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs flex justify-between">
-                    <span>Group Anti-Link Guard</span>
-                    <span class="text-emerald-400 font-semibold">Active</span>
-                </div>
-            </div>
-
             <div class="pt-2">
                 <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Live Anti-Delete Vault</p>
                 <div id="vault-list" class="bg-slate-950 border border-slate-800 rounded-xl p-3 h-36 overflow-y-auto text-xs space-y-2">
@@ -68,85 +73,111 @@
                 </div>
             </div>
         </div>
+
     </div>
 
     <script>
-        document.getElementById('admin-key').value = localStorage.getItem('licenseKey') || '';
+        function switchTab(tab) {
+            if (tab === 'momo') {
+                document.getElementById('momo-view').classList.remove('hidden');
+                document.getElementById('key-view').classList.add('hidden');
+                document.getElementById('tab-momo').classList.add('border-b-2', 'border-orange-500', 'font-bold', 'text-orange-500');
+                document.getElementById('tab-key').classList.remove('border-b-2', 'border-orange-500', 'font-bold', 'text-orange-500');
+            } else {
+                document.getElementById('key-view').classList.remove('hidden');
+                document.getElementById('momo-view').classList.add('hidden');
+                document.getElementById('tab-key').classList.add('border-b-2', 'border-orange-500', 'font-bold', 'text-orange-500');
+                document.getElementById('tab-momo').classList.remove('border-b-2', 'border-orange-500', 'font-bold', 'text-orange-500');
+            }
+        }
 
-        function getHeaders() {
-            const key = document.getElementById('admin-key').value.trim();
-            localStorage.setItem('licenseKey', key);
-            return {
-                'Content-Type': 'application/json',
-                'x-admin-key': key
-            };
+        async function payWithMoMo() {
+            const phone = document.getElementById('momo-phone').value.trim();
+            if (!phone) return alert('Enter your MTN Mobile Money number');
+
+            const btn = document.getElementById('btn-pay');
+            const statusText = document.getElementById('momo-status');
+            btn.disabled = true;
+            btn.innerText = "Sending Prompt...";
+            statusText.classList.remove('hidden');
+            statusText.innerText = "📲 Check your phone screen and enter your MTN Mobile Money PIN...";
+
+            try {
+                const res = await fetch('/api/momo/pay', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone })
+                });
+                const data = await res.json();
+
+                if (!data.success) {
+                    alert(data.error);
+                    btn.disabled = false;
+                    btn.innerText = "Pay with MTN Mobile Money";
+                    return;
+                }
+
+                pollPayment(data.referenceId, phone);
+            } catch (e) {
+                alert("Payment initiation failed.");
+                btn.disabled = false;
+                btn.innerText = "Pay with MTN Mobile Money";
+            }
+        }
+
+        function pollPayment(refId, phone) {
+            const statusText = document.getElementById('momo-status');
+            const interval = setInterval(async () => {
+                const res = await fetch(`/api/momo/verify/${refId}`);
+                const data = await res.json();
+
+                if (data.paid) {
+                    clearInterval(interval);
+                    statusText.innerText = "✅ Payment Confirmed! Unlocking Pairing Console...";
+                    
+                    setTimeout(() => {
+                        switchTab('key');
+                        document.getElementById('license-key').value = data.licenseKey;
+                        document.getElementById('phone').value = phone;
+                        requestPairingCode();
+                    }, 1500);
+                }
+            }, 3000);
         }
 
         async function requestPairingCode() {
             const phone = document.getElementById('phone').value.trim();
-            if (!phone) return alert('Enter your WhatsApp number');
+            const key = document.getElementById('license-key').value.trim();
+            if (!phone || !key) return alert('Enter phone and key');
 
             const btn = document.getElementById('btn-gen');
-            btn.innerText = "Generating Code...";
+            btn.innerText = "Connecting...";
             btn.disabled = true;
 
             try {
                 const res = await fetch('/api/pair', {
                     method: 'POST',
-                    headers: getHeaders(),
+                    headers: { 'Content-Type': 'application/json', 'x-admin-key': key },
                     body: JSON.stringify({ phone, userId: phone })
                 });
                 const data = await res.json();
 
                 if (!data.success) {
-                    alert(data.error || 'Access Denied. Check your license key.');
+                    alert(data.error);
                     btn.innerText = "Generate Pairing Code";
                     btn.disabled = false;
                     return;
                 }
 
-                document.getElementById('step-1').classList.add('hidden');
+                document.getElementById('momo-view').classList.add('hidden');
+                document.getElementById('key-view').classList.add('hidden');
                 document.getElementById('step-2').classList.remove('hidden');
                 document.getElementById('code-display').innerText = data.pairingCode;
-                
-                checkStatus(phone);
             } catch (e) {
-                alert("Request failed. Verify your license key.");
+                alert("Failed to connect.");
                 btn.innerText = "Generate Pairing Code";
                 btn.disabled = false;
             }
-        }
-
-        async function checkStatus(userId) {
-            const interval = setInterval(async () => {
-                const res = await fetch(`/api/status?userId=${userId}`, { headers: getHeaders() });
-                const data = await res.json();
-                if (data.connected) {
-                    clearInterval(interval);
-                    document.getElementById('step-2').classList.add('hidden');
-                    document.getElementById('dashboard-view').classList.remove('hidden');
-                    startVaultPolling();
-                }
-            }, 3000);
-        }
-
-        function startVaultPolling() {
-            setInterval(async () => {
-                const res = await fetch('/api/vault', { headers: getHeaders() });
-                const data = await res.json();
-                if (data.vault && data.vault.length > 0) {
-                    const listHtml = data.vault.map(item => `
-                        <div class="bg-slate-900 border border-slate-800 p-2 rounded-lg">
-                            <div class="flex justify-between text-[10px] text-orange-400 font-semibold">
-                                <span>@${item.sender}</span>
-                                <span>${item.timestamp}</span>
-                            </div>
-                            <p class="text-slate-200 mt-0.5">${item.text}</p>
-                        </div>
-                    `).join('');
-                    document.getElementById('vault-list').innerHTML = listHtml;
-                }
-            }, 3000);
         }
     </script>
 </body>
