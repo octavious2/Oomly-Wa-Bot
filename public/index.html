@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Bot Cloud Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
+    <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+        
+        <!-- Header -->
+        <div class="text-center mb-6">
+            <h1 class="text-xl font-bold tracking-tight text-orange-500">WhatsApp Cloud Console</h1>
+            <p class="text-xs text-slate-400 mt-1">Secured Cloud Automation Suite</p>
+        </div>
+
+        <!-- Admin Passkey Setup -->
+        <div id="auth-panel" class="mb-4 bg-slate-950 p-3 border border-slate-800 rounded-xl space-y-2">
+            <label class="block text-[11px] font-semibold uppercase text-slate-400">Admin Secret Key</label>
+            <input id="admin-key" type="password" placeholder="Enter your secret key" 
+                class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-orange-500" />
+        </div>
+
+        <!-- Step 1: Phone Entry -->
+        <div id="step-1" class="space-y-4">
+            <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">WhatsApp Phone Number</label>
+                <input id="phone" type="tel" placeholder="e.g. 15551234567" 
+                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500" />
+            </div>
+            <button onclick="requestPairingCode()" id="btn-gen"
+                class="w-full bg-orange-600 hover:bg-orange-500 text-white font-medium text-sm py-2.5 rounded-lg transition">
+                Request Pairing Code
+            </button>
+        </div>
+
+        <!-- Step 2: Code Display -->
+        <div id="step-2" class="hidden text-center space-y-4 mt-2">
+            <p class="text-xs text-slate-300">Linking Code Generated:</p>
+            <div id="code-display" class="text-3xl font-mono font-bold tracking-widest bg-slate-950 border border-slate-800 py-3 rounded-xl text-orange-400">
+                --------
+            </div>
+            <p class="text-[11px] text-slate-400">Open <b>WhatsApp > Linked Devices > Link with Phone Number</b> on your phone.</p>
+        </div>
+
+        <!-- Step 3: Active Dashboard -->
+        <div id="dashboard-view" class="hidden space-y-4">
+            <div class="text-center bg-emerald-950/40 border border-emerald-900/50 py-2 rounded-lg text-xs font-semibold text-emerald-400">
+                🟢 Bot Active & Moderating
+            </div>
+
+            <!-- Toggles -->
+            <div class="space-y-2 pt-2">
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Features Status</p>
+                <label class="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs">
+                    <span>Anti-Delete Message Vault</span>
+                    <input type="checkbox" checked class="accent-orange-500 w-4 h-4" />
+                </label>
+                <label class="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs">
+                    <span>Group Anti-Link Guard</span>
+                    <input type="checkbox" checked class="accent-orange-500 w-4 h-4" />
+                </label>
+                <label class="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs">
+                    <span>AI Commands (!ai)</span>
+                    <input type="checkbox" checked class="accent-orange-500 w-4 h-4" />
+                </label>
+            </div>
+
+            <!-- Vault Feed -->
+            <div class="pt-2">
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Anti-Delete Live Vault</p>
+                <div id="vault-list" class="bg-slate-950 border border-slate-800 rounded-xl p-3 h-36 overflow-y-auto text-xs space-y-2">
+                    <p class="text-slate-500 text-center italic mt-4">Vault is active. Intercepted deletions appear here.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load saved key on boot
+        document.getElementById('admin-key').value = localStorage.getItem('adminKey') || '';
+
+        function getHeaders() {
+            const key = document.getElementById('admin-key').value.trim();
+            localStorage.setItem('adminKey', key);
+            return {
+                'Content-Type': 'application/json',
+                'x-admin-key': key
+            };
+        }
+
+        async function requestPairingCode() {
+            const phone = document.getElementById('phone').value.trim();
+            if (!phone) return alert('Enter your phone number');
+
+            const btn = document.getElementById('btn-gen');
+            btn.innerText = "Connecting...";
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/pair', {
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: JSON.stringify({ phone, userId: phone })
+                });
+                const data = await res.json();
+
+                if (!data.success) {
+                    alert(data.error || 'Failed to authenticate');
+                    btn.innerText = "Request Pairing Code";
+                    btn.disabled = false;
+                    return;
+                }
+
+                document.getElementById('step-1').classList.add('hidden');
+                document.getElementById('step-2').classList.remove('hidden');
+                document.getElementById('code-display').innerText = data.pairingCode;
+                
+                checkStatus(phone);
+            } catch (e) {
+                alert("Connection failed. Check your Secret Key.");
+                btn.innerText = "Request Pairing Code";
+                btn.disabled = false;
+            }
+        }
+
+        async function checkStatus(userId) {
+            const interval = setInterval(async () => {
+                const res = await fetch(`/api/status?userId=${userId}`, { headers: getHeaders() });
+                const data = await res.json();
+                if (data.connected) {
+                    clearInterval(interval);
+                    document.getElementById('step-2').classList.add('hidden');
+                    document.getElementById('dashboard-view').classList.remove('hidden');
+                    startVaultPolling();
+                }
+            }, 3000);
+        }
+
+        function startVaultPolling() {
+            setInterval(async () => {
+                const res = await fetch('/api/vault', { headers: getHeaders() });
+                const data = await res.json();
+                if (data.vault && data.vault.length > 0) {
+                    const listHtml = data.vault.map(item => `
+                        <div class="bg-slate-900 border border-slate-800 p-2 rounded-lg">
+                            <div class="flex justify-between text-[10px] text-orange-400 font-semibold">
+                                <span>@${item.sender}</span>
+                                <span>${item.timestamp}</span>
+                            </div>
+                            <p class="text-slate-200 mt-0.5">${item.text}</p>
+                        </div>
+                    `).join('');
+                    document.getElementById('vault-list').innerHTML = listHtml;
+                }
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
