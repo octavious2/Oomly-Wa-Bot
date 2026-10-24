@@ -3,87 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WhatsApp Bot Cloud Dashboard</title>
+    <title>Oomly WhatsApp Bot Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
     <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
         
-        <!-- Header -->
         <div class="text-center mb-6">
-            <h1 class="text-xl font-bold tracking-tight text-orange-500">WhatsApp Cloud Console</h1>
-            <p class="text-xs text-slate-400 mt-1">Secured Cloud Automation Suite</p>
+            <h1 class="text-xl font-bold tracking-tight text-orange-500">Oomly WhatsApp Bot</h1>
+            <p class="text-xs text-slate-400 mt-1">Self-Service Activation Portal</p>
         </div>
 
-        <!-- Admin Passkey Setup -->
+        <!-- License Key Input -->
         <div id="auth-panel" class="mb-4 bg-slate-950 p-3 border border-slate-800 rounded-xl space-y-2">
-            <label class="block text-[11px] font-semibold uppercase text-slate-400">Admin Secret Key</label>
-            <input id="admin-key" type="password" placeholder="Enter your secret key" 
+            <label class="block text-[11px] font-semibold uppercase text-slate-400">Your Paid License Key</label>
+            <input id="admin-key" type="password" placeholder="Enter your license key" 
                 class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-orange-500" />
         </div>
 
         <!-- Step 1: Phone Entry -->
         <div id="step-1" class="space-y-4">
             <div>
-                <label class="block text-xs font-medium text-slate-300 mb-1">WhatsApp Phone Number</label>
-                <input id="phone" type="tel" placeholder="e.g. 15551234567" 
+                <label class="block text-xs font-medium text-slate-300 mb-1">Your WhatsApp Number</label>
+                <input id="phone" type="tel" placeholder="e.g. 256700000000" 
                     class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500" />
             </div>
             <button onclick="requestPairingCode()" id="btn-gen"
                 class="w-full bg-orange-600 hover:bg-orange-500 text-white font-medium text-sm py-2.5 rounded-lg transition">
-                Request Pairing Code
+                Generate Pairing Code
             </button>
         </div>
 
         <!-- Step 2: Code Display -->
         <div id="step-2" class="hidden text-center space-y-4 mt-2">
-            <p class="text-xs text-slate-300">Linking Code Generated:</p>
+            <p class="text-xs text-slate-300">Your 8-Digit Pairing Code:</p>
             <div id="code-display" class="text-3xl font-mono font-bold tracking-widest bg-slate-950 border border-slate-800 py-3 rounded-xl text-orange-400">
                 --------
             </div>
-            <p class="text-[11px] text-slate-400">Open <b>WhatsApp > Linked Devices > Link with Phone Number</b> on your phone.</p>
+            <p class="text-[11px] text-slate-400">Open <b>WhatsApp > Linked Devices > Link with Phone Number</b> on your phone right now.</p>
         </div>
 
         <!-- Step 3: Active Dashboard -->
         <div id="dashboard-view" class="hidden space-y-4">
             <div class="text-center bg-emerald-950/40 border border-emerald-900/50 py-2 rounded-lg text-xs font-semibold text-emerald-400">
-                🟢 Bot Active & Moderating
+                🟢 Bot Successfully Linked & Active
             </div>
 
-            <!-- Toggles -->
             <div class="space-y-2 pt-2">
-                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Features Status</p>
-                <label class="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs">
-                    <span>Anti-Delete Message Vault</span>
-                    <input type="checkbox" checked class="accent-orange-500 w-4 h-4" />
-                </label>
-                <label class="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs">
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Features Enabled</p>
+                <div class="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs flex justify-between">
+                    <span>Anti-Delete Vault</span>
+                    <span class="text-emerald-400 font-semibold">Active</span>
+                </div>
+                <div class="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs flex justify-between">
                     <span>Group Anti-Link Guard</span>
-                    <input type="checkbox" checked class="accent-orange-500 w-4 h-4" />
-                </label>
-                <label class="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs">
-                    <span>AI Commands (!ai)</span>
-                    <input type="checkbox" checked class="accent-orange-500 w-4 h-4" />
-                </label>
+                    <span class="text-emerald-400 font-semibold">Active</span>
+                </div>
             </div>
 
-            <!-- Vault Feed -->
             <div class="pt-2">
-                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Anti-Delete Live Vault</p>
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Live Anti-Delete Vault</p>
                 <div id="vault-list" class="bg-slate-950 border border-slate-800 rounded-xl p-3 h-36 overflow-y-auto text-xs space-y-2">
-                    <p class="text-slate-500 text-center italic mt-4">Vault is active. Intercepted deletions appear here.</p>
+                    <p class="text-slate-500 text-center italic mt-4">Waiting for revoked messages...</p>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        // Load saved key on boot
-        document.getElementById('admin-key').value = localStorage.getItem('adminKey') || '';
+        document.getElementById('admin-key').value = localStorage.getItem('licenseKey') || '';
 
         function getHeaders() {
             const key = document.getElementById('admin-key').value.trim();
-            localStorage.setItem('adminKey', key);
+            localStorage.setItem('licenseKey', key);
             return {
                 'Content-Type': 'application/json',
                 'x-admin-key': key
@@ -92,10 +84,10 @@
 
         async function requestPairingCode() {
             const phone = document.getElementById('phone').value.trim();
-            if (!phone) return alert('Enter your phone number');
+            if (!phone) return alert('Enter your WhatsApp number');
 
             const btn = document.getElementById('btn-gen');
-            btn.innerText = "Connecting...";
+            btn.innerText = "Generating Code...";
             btn.disabled = true;
 
             try {
@@ -107,8 +99,8 @@
                 const data = await res.json();
 
                 if (!data.success) {
-                    alert(data.error || 'Failed to authenticate');
-                    btn.innerText = "Request Pairing Code";
+                    alert(data.error || 'Access Denied. Check your license key.');
+                    btn.innerText = "Generate Pairing Code";
                     btn.disabled = false;
                     return;
                 }
@@ -119,8 +111,8 @@
                 
                 checkStatus(phone);
             } catch (e) {
-                alert("Connection failed. Check your Secret Key.");
-                btn.innerText = "Request Pairing Code";
+                alert("Request failed. Verify your license key.");
+                btn.innerText = "Generate Pairing Code";
                 btn.disabled = false;
             }
         }
