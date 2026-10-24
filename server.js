@@ -3,6 +3,7 @@ const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whis
 const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const app = express();
 app.use(express.json());
@@ -10,11 +11,9 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const ADMIN_KEY = process.env.ADMIN_KEY || "owner_secret_123";
 
-// Comma-separated list of valid customer license keys from Render env (e.g., "PASS-ALICE-123,PASS-BOB-456")
-const getValidLicenses = () => {
-    const raw = process.env.LICENSED_TOKENS || "";
-    return raw.split(',').map(k => k.trim()).filter(Boolean);
-};
+// Memory Storage for One-Time License Keys
+// Format: { "KEY-XXXX-YYYY": { redeemed: false, createdAt: Date.now() } }
+const licenseStore = new Map();
 
 const activeConnections = {};
 const messageCache = new Map();
@@ -26,30 +25,66 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Middleware: Master Admin Only
+// Middleware: Validate Master Admin
 const authenticateAdmin = (req, res, next) => {
-    const key = req.headers['x-admin-key'];
+    const key = req.headers['x-admin-key'] || req.query.adminKey;
     if (!key || key !== ADMIN_KEY) {
         return res.status(401).json({ success: false, error: "Unauthorized Master Admin Key" });
     }
     next();
 };
 
-// Middleware: Customer License or Master Admin
-const authenticateClientOrAdmin = (req, res, next) => {
+// Middleware: Validate One-Time License Key
+const validateLicenseKey = (req, res, next) => {
     const key = req.headers['x-admin-key'];
-    if (key === ADMIN_KEY) return next(); // You have access to everything
+    
+    // Master Admin always bypasses license check
+    if (key === ADMIN_KEY) return next();
 
-    const validLicenses = getValidLicenses();
-    if (validLicenses.includes(key)) {
-        return next(); // Valid paying customer
+    if (!key || !licenseStore.has(key)) {
+        return res.status(403).json({ success: false, error: "Invalid License Key. Please purchase a valid passkey." });
     }
 
-    return res.status(403).json({ success: false, error: "Invalid or Unpaid License Key. Please contact admin." });
+    const license = licenseStore.get(key);
+    if (license.redeemed) {
+        return res.status(403).json({ success: false, error: "This license key has already been used." });
+    }
+
+    req.licenseKey = key;
+    next();
 };
 
-// API: Request Pairing Code (Accessible by Paying Customers using their License Key)
-app.post('/api/pair', authenticateClientOrAdmin, async (req, res) => {
+// -------------------------------------------------------------
+// ADMIN / AUTOMATION API: Generate One-Time License Key
+// -------------------------------------------------------------
+app.post('/api/admin/generate-key', authenticateAdmin, (req, res) => {
+    // Generate a secure random 8-character token (e.g. OOMLY-A1B2C3D4)
+    const rawCode = crypto.randomBytes(4).toString('hex').toUpperCase();
+    const newKey = `OOMLY-${rawCode}`;
+
+    licenseStore.set(newKey, {
+        redeemed: false,
+        createdAt: new Date()
+    });
+
+    console.log(`🎟️ [NEW LICENSE GENERATED]: ${newKey}`);
+    res.json({ success: true, licenseKey: newKey });
+});
+
+// API: List All Active & Redeemed Keys (For Admin Dashboard)
+app.get('/api/admin/keys', authenticateAdmin, (req, res) => {
+    const keysList = Array.from(licenseStore.entries()).map(([key, data]) => ({
+        key,
+        redeemed: data.redeemed,
+        createdAt: data.createdAt
+    }));
+    res.json({ success: true, keys: keysList });
+});
+
+// -------------------------------------------------------------
+// CLIENT API: Request Pairing Code (Consumes 1-Time License Key)
+// -------------------------------------------------------------
+app.post('/api/pair', validateLicenseKey, async (req, res) => {
     const { phone, userId } = req.body;
     if (!phone || !userId) {
         return res.status(400).json({ success: false, error: "Phone number is required" });
@@ -74,10 +109,15 @@ app.post('/api/pair', authenticateClientOrAdmin, async (req, res) => {
         sock.ev.on('creds.update', saveCreds);
 
         sock.ev.on('connection.update', (update) => {
-            const { connection, lastDisconnect } = update;
+            const { connection } = update;
             if (connection === 'open') {
                 activeConnections[userId] = true;
-                console.log(`✅ Bot Connected for user: ${userId}`);
+                
+                // Mark License Key as REDEEMED once successfully linked!
+                if (req.licenseKey && licenseStore.has(req.licenseKey)) {
+                    licenseStore.get(req.licenseKey).redeemed = true;
+                    console.log(`🔒 [KEY REDEEMED & EXPIRED]: ${req.licenseKey}`);
+                }
             } else if (connection === 'close') {
                 activeConnections[userId] = false;
             }
@@ -104,15 +144,6 @@ app.post('/api/pair', authenticateClientOrAdmin, async (req, res) => {
                     });
                 }
             }
-
-            // Anti-Link Moderation in groups
-            if (from.endsWith('@g.us')) {
-                const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
-                if (text.includes('chat.whatsapp.com/')) {
-                    await sock.sendMessage(from, { delete: msg.key });
-                    await sock.sendMessage(from, { text: `⚠️ Links are not allowed here!` }, { quoted: msg });
-                }
-            }
         });
 
         if (!sock.authState.creds.registered) {
@@ -129,15 +160,15 @@ app.post('/api/pair', authenticateClientOrAdmin, async (req, res) => {
     }
 });
 
-app.get('/api/status', authenticateClientOrAdmin, (req, res) => {
+app.get('/api/status', validateLicenseKey, (req, res) => {
     const { userId } = req.query;
     res.json({ connected: !!activeConnections[userId] });
 });
 
-app.get('/api/vault', authenticateClientOrAdmin, (req, res) => {
+app.get('/api/vault', validateLicenseKey, (req, res) => {
     res.json({ success: true, vault: deletedVault });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Oomly Bot Server active on port ${PORT}`);
+    console.log(`🚀 Automated Oomly Bot Server active on port ${PORT}`);
 });
