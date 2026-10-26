@@ -184,7 +184,7 @@ app.get('/api/momo/verify/:referenceId', async (req, res) => {
 app.post('/api/pair', validateLicenseKey, async (req, res) => {
     const { phone, userId } = req.body;
     if (!phone || !userId) {
-        return res.status(400).json({ success: false, error: "Phone number required" });
+        return res.status(400).json({ success: false, error: "Phone number and userId required" });
     }
 
     const cleanNumber = phone.replace(/[^0-9]/g, '');
@@ -200,7 +200,7 @@ app.post('/api/pair', validateLicenseKey, async (req, res) => {
             auth: state,
             printQRInTerminal: false,
             logger: pino({ level: 'silent' }),
-            browser: ["Oomly WhatsApp Bot", "Chrome", "1.0.0"]
+            browser: ["Ubuntu", "Chrome", "20.0.0"] // Strict platform string recognized by WhatsApp
         });
 
         sock.ev.on('creds.update', saveCreds);
@@ -223,7 +223,6 @@ app.post('/api/pair', validateLicenseKey, async (req, res) => {
         sock.ev.on('messages.upsert', async (m) => {
             const msg = m.messages[0];
             if (!msg || !msg.message) return;
-            const from = msg.key.remoteJid;
             const messageId = msg.key.id;
 
             messageCache.set(messageId, msg);
@@ -243,16 +242,17 @@ app.post('/api/pair', validateLicenseKey, async (req, res) => {
         });
 
         if (!sock.authState.creds.registered) {
-            setTimeout(async () => {
-                const code = await sock.requestPairingCode(cleanNumber);
-                return res.json({ success: true, pairingCode: code });
-            }, 3000);
+            // Give socket a tiny moment to initialize, then await the code properly
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const code = await sock.requestPairingCode(cleanNumber);
+            return res.json({ success: true, pairingCode: code });
         } else {
             activeConnections[userId] = true;
             return res.json({ success: true, pairingCode: "ALREADY_LINKED" });
         }
     } catch (e) {
-        res.status(500).json({ success: false, error: e.message });
+        console.error("Pairing Error:", e);
+        return res.status(500).json({ success: false, error: e.message });
     }
 });
 
