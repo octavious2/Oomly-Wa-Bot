@@ -3,6 +3,7 @@ require('dotenv').config();
 const { handleViewOnce } = require('./modules/viewOnce');
 const { handleAntiDelete } = require('./modules/antiDelete');
 const { handleAutoStatus } = require('./modules/ghostUtils');
+const { getSettings, updateSetting } = require('./modules/settings');
 const express = require('express');
 const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
@@ -21,15 +22,13 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "owner_secret_123";
 const MOMO_SUBSCRIPTION_KEY = process.env.MOMO_SUBSCRIPTION_KEY || "";
 const MOMO_API_USER = process.env.MOMO_API_USER || "";
 const MOMO_API_KEY = process.env.MOMO_API_KEY || "";
-const MOMO_ENV = process.env.MOMO_ENV || "sandbox"; // "sandbox" or "mtnuganda" / "mtnghana"
-const BOT_ACCESS_FEE = process.env.BOT_ACCESS_FEE || "10000"; // Default Fee (e.g. 10,000 UGX)
+const MOMO_ENV = process.env.MOMO_ENV || "sandbox";
+const BOT_ACCESS_FEE = process.env.BOT_ACCESS_FEE || "10000";
 
 // Memory Storage
 const licenseStore = new Map();
 const activeConnections = {};
 const activeSockets = {};
-const messageCache = new Map();
-const deletedVault = [];
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -46,29 +45,35 @@ const authenticateAdmin = (req, res, next) => {
     next();
 };
 
-// Middleware: Validate License
+// Middleware: Validate License / Admin Key for Dashboard & APIs
 const validateLicenseKey = (req, res, next) => {
-    const key = req.headers['x-admin-key'];
-    if (key === ADMIN_KEY) return next();
+    const key = req.headers['x-admin-key'] || req.query.key;
+
+    if (key && key === ADMIN_KEY) return next();
 
     if (!key || !licenseStore.has(key)) {
-        return res.status(403).json({ success: false, error: "Invalid License Key. Complete MTN MoMo payment first." });
+        return res.status(403).json({ 
+            success: false, 
+            error: "Invalid License Key. Complete MTN MoMo payment first." 
+        });
     }
 
     const license = licenseStore.get(key);
-    if (license.redeemed) {
-        return res.status(403).json({ success: false, error: "This license key has already been used." });
+    if (license.expiresAt && Date.now() > license.expiresAt) {
+        return res.status(403).json({ 
+            success: false, 
+            error: "License Key has expired. Please renew via MTN MoMo." 
+        });
     }
 
     req.licenseKey = key;
+    req.licenseData = license;
     next();
 };
 
 // -------------------------------------------------------------
 // MTN MOMO API INTEGRATION
 // -------------------------------------------------------------
-
-// Helper: Get MoMo Access Token
 async function getMoMoToken() {
     const auth = Buffer.from(`${MOMO_API_USER}:${MOMO_API_KEY}`).toString('base64');
     const response = await axios.post(
@@ -84,7 +89,6 @@ async function getMoMoToken() {
     return response.data.access_token;
 }
 
-// Endpoint 1: Customer Triggers MTN MoMo Payment
 app.post('/api/momo/pay', async (req, res) => {
     const { phone } = req.body;
     if (!phone) return res.status(400).json({ success: false, error: "Phone number required" });
@@ -94,18 +98,13 @@ app.post('/api/momo/pay', async (req, res) => {
 
     try {
         const token = await getMoMoToken();
-
-        // Send Request to Pay prompt to customer phone
         await axios.post(
             `https://sandbox.momodeveloper.mtn.com/collection/v1_0/requesttopay`,
             {
                 amount: BOT_ACCESS_FEE,
-                currency: "EUR", // Change to "UGX" or local currency in production
+                currency: "EUR",
                 externalId: referenceId,
-                payer: {
-                    partyIdType: "MSISDN",
-                    partyId: cleanPhone
-                },
+                payer: { partyIdType: "MSISDN", partyId: cleanPhone },
                 payerMessage: "Payment for Oomly WhatsApp Bot License",
                 payeeNote: "Oomly License Purchase"
             },
@@ -125,14 +124,12 @@ app.post('/api/momo/pay', async (req, res) => {
             message: "MTN MoMo prompt sent to phone. Enter PIN on phone to complete.",
             referenceId
         });
-
     } catch (e) {
         console.error("MoMo Pay Error:", e.response?.data || e.message);
         res.status(500).json({ success: false, error: e.response?.data?.errorDescription || e.message });
     }
 });
 
-// Endpoint 2: Check Payment Status & Issue Key Automatically
 app.get('/api/momo/verify/:referenceId', async (req, res) => {
     const { referenceId } = req.params;
 
@@ -177,14 +174,20 @@ app.get('/api/momo/verify/:referenceId', async (req, res) => {
         } else {
             return res.json({ success: true, paid: false, status: "PENDING" });
         }
-
     } catch (e) {
         res.status(500).json({ success: false, error: "Verification failed" });
     }
 });
 
-// Helper Function: Socket Initializer with Automatic Reconnection
+// -------------------------------------------------------------
+// SOCKET INITIALIZER (With Singleton Guard against 440 Conflicts)
+// -------------------------------------------------------------
 async function connectToWhatsApp(userId, req = null) {
+    // If a socket instance already exists and is active, return it to prevent duplicate login collision
+    if (activeSockets[userId] && activeConnections[userId]) {
+        return activeSockets[userId];
+    }
+
     const sessionDir = path.join(__dirname, 'sessions', userId);
     if (!fs.existsSync(sessionDir)) {
         fs.mkdirSync(sessionDir, { recursive: true });
@@ -200,6 +203,8 @@ async function connectToWhatsApp(userId, req = null) {
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
         markOnlineOnConnect: true,
+        // Prevent background crash throws on dropped transaction frames
+        emitOwnEvents: false,
     });
 
     activeSockets[userId] = sock;
@@ -214,18 +219,17 @@ async function connectToWhatsApp(userId, req = null) {
 
             if (req && req.licenseKey && licenseStore.has(req.licenseKey)) {
                 licenseStore.get(req.licenseKey).redeemed = true;
-                console.log(`🔒 [MOMO KEY EXPIRED]: ${req.licenseKey}`);
             }
         } else if (connection === 'close') {
             activeConnections[userId] = false;
+            delete activeSockets[userId];
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             console.log(`⚠️ Connection closed. Status Code: ${statusCode}`);
 
-            // If disconnected due to restart requirement (515) or temporary network loss, reconnect automatically!
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) {
                 console.log(`🔄 [RECONNECTING]: Initializing fresh handshake reconnect for ${userId}...`);
-                setTimeout(() => connectToWhatsApp(userId, req), 3000);
+                setTimeout(() => connectToWhatsApp(userId), 3000);
             } else {
                 console.log(`❌ [LOGGED OUT]: Wiping session data for ${userId}`);
                 if (fs.existsSync(sessionDir)) {
@@ -235,19 +239,19 @@ async function connectToWhatsApp(userId, req = null) {
         }
     });
 
-sock.ev.on('messages.upsert', async (m) => {
-    const msg = m.messages[0];
-    if (!msg || !msg.message) return;
+    sock.ev.on('messages.upsert', async (m) => {
+        try {
+            const msg = m.messages[0];
+            if (!msg || !msg.message) return;
 
-    // 1. Bypass View-Once and re-send to chat
-    await handleViewOnce(sock, msg);
-
-    // 2. Recover deleted messages and report in chat
-    await handleAntiDelete(sock, msg);
-
-    // 3. Status auto-views
-    await handleAutoStatus(sock, msg);
-});
+            // Run modules safely with error boundary wrappers
+            await handleViewOnce(sock, msg).catch(e => console.error("ViewOnce Error:", e.message));
+            await handleAntiDelete(sock, msg).catch(e => console.error("AntiDelete Error:", e.message));
+            await handleAutoStatus(sock, msg).catch(e => console.error("AutoStatus Error:", e.message));
+        } catch (err) {
+            console.error("Message upsert loop error:", err);
+        }
+    });
 
     return sock;
 }
@@ -262,26 +266,16 @@ app.post('/api/pair', validateLicenseKey, async (req, res) => {
     }
 
     let cleanNumber = phone.replace(/[^0-9]/g, '');
-
-    // Format local East Africa 07XX numbers to E.164 without standard leading zero
     if (cleanNumber.startsWith('0') && cleanNumber.length === 10) {
         cleanNumber = '256' + cleanNumber.substring(1);
     }
-    console.log(`📱 [PAIRING] Formatting phone number to: ${cleanNumber}`);
 
     const sessionDir = path.join(__dirname, 'sessions', userId);
-
-    // Auto-wipe broken sessions before initiating new pairing requests
-    if (!activeConnections[userId] && fs.existsSync(sessionDir)) {
-        fs.rmSync(sessionDir, { recursive: true, force: true });
-        console.log(`🧹 [SESSION WIPE]: Cleared stale session for ${userId}`);
-    }
 
     try {
         const sock = await connectToWhatsApp(userId, req);
 
         if (!sock.authState.creds.registered) {
-            // Give socket 3 seconds to spin up WebSocket before asking for pairing code
             await new Promise(resolve => setTimeout(resolve, 3000));
             const code = await sock.requestPairingCode(cleanNumber);
             return res.json({ success: true, pairingCode: code });
@@ -308,19 +302,38 @@ app.get('/api/vault', validateLicenseKey, (req, res) => {
     res.json({ success: true, vault: global.deletedVault || [] });
 });
 
-// Automatically restore active sessions from disk on server startup
+app.get('/api/viewonce-vault', validateLicenseKey, (req, res) => {
+    res.json({ success: true, vault: global.viewOnceVault || [] });
+});
+
+app.get('/api/settings', validateLicenseKey, (req, res) => {
+    res.json({ success: true, settings: getSettings() });
+});
+
+app.post('/api/settings', validateLicenseKey, express.json(), (req, res) => {
+    const { key, value } = req.body;
+    const updated = updateSetting(key, value);
+    if (updated) {
+        res.json({ success: true, settings: getSettings() });
+    } else {
+        res.status(400).json({ success: false, error: "Invalid setting key" });
+    }
+});
+
+// Startup: Restore saved session once without double initialization race conditions
 const sessionsBasePath = path.join(__dirname, 'sessions');
 if (fs.existsSync(sessionsBasePath)) {
     const existingUsers = fs.readdirSync(sessionsBasePath);
     existingUsers.forEach(userId => {
         const userCredsFile = path.join(sessionsBasePath, userId, 'creds.json');
         if (fs.existsSync(userCredsFile)) {
-            activeConnections[userId] = true;
-            console.log(`📂 [SESSION RESTORED]: Found existing credentials for ${userId}`);
+            console.log(`📂 [SESSION RESTORED]: Booting socket for ${userId}`);
+            connectToWhatsApp(userId);
         }
     });
 }
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 MTN MoMo Automated Bot Server active on port ${PORT}`);
+    console.log(`🔑 [MASTER ADMIN KEY]: ${ADMIN_KEY}`);
 });
