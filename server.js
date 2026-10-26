@@ -196,27 +196,34 @@ app.post('/api/pair', validateLicenseKey, async (req, res) => {
     try {
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
-        const sock = makeWASocket({
+const sock = makeWASocket({
             auth: state,
             printQRInTerminal: false,
             logger: pino({ level: 'silent' }),
-            browser: ["Ubuntu", "Chrome", "20.0.0"] // Strict platform string recognized by WhatsApp
+            browser: ["Ubuntu", "Chrome", "20.0.0"],
+            // Add these to maintain connection stability on Render:
+            connectTimeoutMs: 60000,
+            keepAliveIntervalMs: 25000,
+            markOnlineOnConnect: true,
         });
 
         sock.ev.on('creds.update', saveCreds);
 
         sock.ev.on('connection.update', (update) => {
-            const { connection } = update;
+            const { connection, lastDisconnect } = update;
             if (connection === 'open') {
                 activeConnections[userId] = true;
+                console.log(`✅ [WHATSAPP CONNECTED] for user ${userId}`);
                 
-                // Expire License Key on successful pairing
                 if (req.licenseKey && licenseStore.has(req.licenseKey)) {
                     licenseStore.get(req.licenseKey).redeemed = true;
                     console.log(`🔒 [MOMO KEY EXPIRED]: ${req.licenseKey}`);
                 }
             } else if (connection === 'close') {
                 activeConnections[userId] = false;
+                const reason = lastDisconnect?.error?.output?.statusCode;
+                console.log(`⚠️ Connection closed due to ${reason}, reconnecting...`);
+                // Optional: trigger re-init or let Baileys handle it
             }
         });
 
