@@ -189,6 +189,13 @@ app.post('/api/pair', validateLicenseKey, async (req, res) => {
 
     const cleanNumber = phone.replace(/[^0-9]/g, '');
     const sessionDir = path.join(__dirname, 'sessions', userId);
+
+    // ✨ AUTO-WIPE: If not actively connected, delete the broken/stale session folder first!
+    if (!activeConnections[userId] && fs.existsSync(sessionDir)) {
+        fs.rmSync(sessionDir, { recursive: true, force: true });
+        console.log(`🧹 [SESSION WIPE]: Cleared stale session for ${userId}`);
+    }
+
     if (!fs.existsSync(sessionDir)) {
         fs.mkdirSync(sessionDir, { recursive: true });
     }
@@ -196,12 +203,11 @@ app.post('/api/pair', validateLicenseKey, async (req, res) => {
     try {
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
 
-const sock = makeWASocket({
+        const sock = makeWASocket({
             auth: state,
             printQRInTerminal: false,
             logger: pino({ level: 'silent' }),
             browser: ["Ubuntu", "Chrome", "20.0.0"],
-            // Add these to maintain connection stability on Render:
             connectTimeoutMs: 60000,
             keepAliveIntervalMs: 25000,
             markOnlineOnConnect: true,
@@ -222,8 +228,7 @@ const sock = makeWASocket({
             } else if (connection === 'close') {
                 activeConnections[userId] = false;
                 const reason = lastDisconnect?.error?.output?.statusCode;
-                console.log(`⚠️ Connection closed due to ${reason}, reconnecting...`);
-                // Optional: trigger re-init or let Baileys handle it
+                console.log(`⚠️ Connection closed due to reason code: ${reason}`);
             }
         });
 
@@ -249,7 +254,6 @@ const sock = makeWASocket({
         });
 
         if (!sock.authState.creds.registered) {
-            // Give socket a tiny moment to initialize, then await the code properly
             await new Promise(resolve => setTimeout(resolve, 2000));
             const code = await sock.requestPairingCode(cleanNumber);
             return res.json({ success: true, pairingCode: code });
