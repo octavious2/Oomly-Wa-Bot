@@ -1,13 +1,18 @@
+const { getSettings } = require('./settings');
+
 if (!global.deletedVault) global.deletedVault = [];
 if (!global.messageCache) global.messageCache = new Map();
 
-/**
- * Handles incoming message upserts for caching and capturing deleted messages,
- * and sends an alert directly into the chat.
- * @param {Object} sock - The active Baileys socket instance
- * @param {Object} msg - The single WhatsApp message object
- */
+// Helper to reliably extract clean phone/sender identifiers from JIDs
+function cleanSenderId(jidOrParticipant) {
+    if (!jidOrParticipant) return "Unknown";
+    // Handles formats like "2567XXXXX:2@s.whatsapp.net" or "2567XXXXX@s.whatsapp.net"
+    const base = jidOrParticipant.split('@')[0];
+    return base.split(':')[0];
+}
+
 async function handleAntiDelete(sock, msg) {
+    if (!getSettings().antiDelete) return;
     if (!msg || !msg.message) return;
     const messageId = msg.key.id;
 
@@ -25,7 +30,8 @@ async function handleAntiDelete(sock, msg) {
 
         if (originalMsg) {
             const remoteJid = originalMsg.key.remoteJid;
-            const senderPhone = (originalMsg.key.participant || remoteJid).split('@')[0];
+            const rawSender = originalMsg.key.participant || remoteJid;
+            const senderPhone = cleanSenderId(rawSender);
             
             const innerMsg = originalMsg.message;
             const textContent = innerMsg.conversation 
@@ -44,7 +50,6 @@ async function handleAntiDelete(sock, msg) {
 
             console.log(`🗑️ [ANTI-DELETE]: Recovered message from ${senderPhone}: "${textContent}"`);
 
-            // 🚀 Send the recovered message directly into the WhatsApp chat!
             await sock.sendMessage(remoteJid, {
                 text: `🛡️ *Anti-Delete Alert*\n\n👤 *Sender:* @${senderPhone}\n💬 *Deleted Message:* "${textContent}"`,
                 mentions: [`${senderPhone}@s.whatsapp.net`]

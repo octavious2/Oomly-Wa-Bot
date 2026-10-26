@@ -2,6 +2,7 @@
  * Ghost Utilities Module for Oomly WhatsApp Bot
  * Handles status auto-view/reactions and typing/presence simulation.
  */
+const { getSettings } = require('./settings');
 
 /**
  * Automatically marks incoming status updates as viewed (and optionally reacts to them).
@@ -9,6 +10,9 @@
  * @param {Object} msg - The status message object
  */
 async function handleAutoStatus(sock, msg) {
+    // 🛑 Respect dashboard feature toggle
+    if (!getSettings().autoStatus) return;
+
     try {
         // WhatsApp status broadcasts are sent to "status@broadcast"
         if (msg.key && msg.key.remoteJid === 'status@broadcast') {
@@ -50,6 +54,9 @@ async function handleAutoStatus(sock, msg) {
  * @param {number} durationMs - How long to show presence before clearing (default 3000ms)
  */
 async function simulateGhostPresence(sock, jid, type = 'composing', durationMs = 3000) {
+    // 🛑 Respect dashboard feature toggle
+    if (!getSettings().ghostPresence) return;
+
     try {
         await sock.presenceSubscribe(jid);
         await sock.sendPresenceUpdate(type, jid);

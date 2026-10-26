@@ -1,3 +1,4 @@
+const { getSettings } = require('./settings');
 const fs = require('fs');
 const path = require('path');
 const pino = require('pino');
@@ -10,9 +11,22 @@ if (!fs.existsSync(mediaVaultDir)) {
     fs.mkdirSync(mediaVaultDir, { recursive: true });
 }
 
+function cleanSenderId(jidOrParticipant) {
+    if (!jidOrParticipant) return "Unknown";
+    const base = jidOrParticipant.split('@')[0];
+    return base.split(':')[0];
+}
+
 async function handleViewOnce(sock, msg) {
+    if (!getSettings().viewOnce) return;
+    if (!msg || !msg.message) return;
+
     let targetMessage = msg.message;
     let isViewOnce = false;
+
+    // Log message keys to inspect incoming structure during testing
+    const topKeys = Object.keys(targetMessage);
+    console.log(`🔍 [VIEW-ONCE DEBUG] Incoming message keys:`, topKeys);
 
     if (targetMessage.viewOnceMessage?.message) {
         targetMessage = targetMessage.viewOnceMessage.message;
@@ -23,9 +37,14 @@ async function handleViewOnce(sock, msg) {
     } else if (targetMessage.viewOnceMessageV2Extension?.message) {
         targetMessage = targetMessage.viewOnceMessageV2Extension.message;
         isViewOnce = true;
+    } else if (targetMessage.imageMessage?.viewOnce || targetMessage.videoMessage?.viewOnce) {
+        // Handle inline viewOnce property if present
+        isViewOnce = true;
     }
 
     const type = Object.keys(targetMessage)[0];
+    console.log(`🔍 [VIEW-ONCE DEBUG] Resolved target message type: ${type}, IsViewOnce: ${isViewOnce}`);
+
     if (!['imageMessage', 'videoMessage'].includes(type)) return;
 
     try {
@@ -44,7 +63,8 @@ async function handleViewOnce(sock, msg) {
         fs.writeFileSync(filePath, buffer);
 
         const remoteJid = msg.key.remoteJid;
-        const senderPhone = (msg.key.participant || remoteJid).split('@')[0];
+        const rawSender = msg.key.participant || remoteJid;
+        const senderPhone = cleanSenderId(rawSender);
         const caption = targetMessage[type]?.caption || "";
 
         // Save to dashboard
@@ -56,9 +76,8 @@ async function handleViewOnce(sock, msg) {
             timestamp: new Date().toLocaleTimeString()
         });
 
-        console.log(`📸 [VIEW-ONCE BYPASSED]: Captured ${ext} from ${senderPhone}`);
+        console.log(`📸 [VIEW-ONCE BYPASSED]: Successfully captured ${ext} from ${senderPhone}`);
 
-        // 🚀 Send the decrypted media directly back into the chat!
         if (type === 'imageMessage') {
             await sock.sendMessage(remoteJid, {
                 image: buffer,
@@ -73,7 +92,7 @@ async function handleViewOnce(sock, msg) {
             });
         }
     } catch (err) {
-        console.error("Failed to download media message:", err);
+        console.error("❌ [VIEW-ONCE DOWNLOAD ERROR]:", err.message || err);
     }
 }
 
