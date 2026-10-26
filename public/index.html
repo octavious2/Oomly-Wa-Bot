@@ -15,7 +15,7 @@
         </div>
 
         <!-- Mode Toggle Tabs -->
-        <div class="flex border-b border-slate-800 mb-4 text-xs text-center">
+        <div id="tabs-container" class="flex border-b border-slate-800 mb-4 text-xs text-center">
             <button id="tab-momo" onclick="switchTab('momo')" class="w-1/2 py-2 text-orange-500 border-b-2 border-orange-500 font-bold">Pay via MTN MoMo</button>
             <button id="tab-key" onclick="switchTab('key')" class="w-1/2 py-2 text-slate-400 font-medium">I Have a Key / Admin</button>
         </div>
@@ -59,12 +59,13 @@
                 --------
             </div>
             <p class="text-[11px] text-slate-400">Open <b>WhatsApp > Linked Devices > Link with Phone Number</b> on your phone right now.</p>
+            <p class="text-xs text-amber-400 animate-pulse mt-2">Waiting for connection confirmation...</p>
         </div>
 
         <!-- Step 3: Active Dashboard -->
         <div id="dashboard-view" class="hidden space-y-4">
             <div class="text-center bg-emerald-950/40 border border-emerald-900/50 py-2 rounded-lg text-xs font-semibold text-emerald-400">
-                🟢 Bot Successfully Active
+                🟢 Bot Successfully Active & Connected
             </div>
             <div class="pt-2">
                 <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Live Anti-Delete Vault</p>
@@ -77,6 +78,11 @@
     </div>
 
     <script>
+        let currentUserId = null;
+        let currentKey = null;
+        let statusPollInterval = null;
+        let vaultPollInterval = null;
+
         function switchTab(tab) {
             if (tab === 'momo') {
                 document.getElementById('momo-view').classList.remove('hidden');
@@ -150,6 +156,9 @@
             const key = document.getElementById('license-key').value.trim();
             if (!phone || !key) return alert('Enter phone and key');
 
+            currentUserId = phone;
+            currentKey = key;
+
             const btn = document.getElementById('btn-gen');
             btn.innerText = "Connecting...";
             btn.disabled = true;
@@ -169,15 +178,75 @@
                     return;
                 }
 
+                document.getElementById('tabs-container').classList.add('hidden');
                 document.getElementById('momo-view').classList.add('hidden');
                 document.getElementById('key-view').classList.add('hidden');
-                document.getElementById('step-2').classList.remove('hidden');
-                document.getElementById('code-display').innerText = data.pairingCode;
+                
+                if (data.pairingCode === "ALREADY_LINKED") {
+                    // Instant jump if already authenticated!
+                    document.getElementById('step-2').classList.add('hidden');
+                    document.getElementById('dashboard-view').classList.remove('hidden');
+                    startVaultPolling();
+                } else {
+                    document.getElementById('step-2').classList.remove('hidden');
+                    document.getElementById('code-display').innerText = data.pairingCode;
+                    startStatusPolling();
+                }
+
+                // Start checking status until backend says connected
+                startStatusPolling();
             } catch (e) {
                 alert("Failed to connect.");
                 btn.innerText = "Generate Pairing Code";
                 btn.disabled = false;
             }
+        }
+
+        function startStatusPolling() {
+            if (statusPollInterval) clearInterval(statusPollInterval);
+
+            statusPollInterval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/api/status?userId=${currentUserId}`, {
+                        headers: { 'x-admin-key': currentKey }
+                    });
+                    const data = await res.json();
+
+                    if (data.connected) {
+                        clearInterval(statusPollInterval);
+                        document.getElementById('step-2').classList.add('hidden');
+                        document.getElementById('dashboard-view').classList.remove('hidden');
+                        startVaultPolling();
+                    }
+                } catch (e) {
+                    console.error("Polling status error", e);
+                }
+            }, 3000);
+        }
+
+        function startVaultPolling() {
+            if (vaultPollInterval) clearInterval(vaultPollInterval);
+
+            vaultPollInterval = setInterval(async () => {
+                try {
+                    const res = await fetch('/api/vault', {
+                        headers: { 'x-admin-key': currentKey }
+                    });
+                    const data = await res.json();
+
+                    if (data.success && data.vault.length > 0) {
+                        const vaultList = document.getElementById('vault-list');
+                        vaultList.innerHTML = data.vault.map(item => `
+                            <div class="bg-slate-900 border border-slate-800 p-2 rounded">
+                                <div class="text-orange-400 font-bold">From: ${item.sender} <span class="text-slate-500 font-normal">(${item.timestamp})</span></div>
+                                <div class="text-slate-200 mt-1">${item.text}</div>
+                            </div>
+                        `).join('');
+                    }
+                } catch (e) {
+                    console.error("Vault polling error", e);
+                }
+            }, 4000);
         }
     </script>
 </body>

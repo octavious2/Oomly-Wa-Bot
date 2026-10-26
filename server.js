@@ -1,5 +1,7 @@
+require('dotenv').config();
+
 const express = require('express');
-const { makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
@@ -22,6 +24,7 @@ const BOT_ACCESS_FEE = process.env.BOT_ACCESS_FEE || "10000"; // Default Fee (e.
 // Memory Storage
 const licenseStore = new Map();
 const activeConnections = {};
+const activeSockets = {};
 const messageCache = new Map();
 const deletedVault = [];
 
@@ -122,7 +125,7 @@ app.post('/api/momo/pay', async (req, res) => {
 
     } catch (e) {
         console.error("MoMo Pay Error:", e.response?.data || e.message);
-        res.status(500).json({ success: false, error: "Failed to initiate MTN Mobile Money request." });
+        res.status(500).json({ success: false, error: e.response?.data?.errorDescription || e.message });
     }
 });
 
@@ -146,7 +149,6 @@ app.get('/api/momo/verify/:referenceId', async (req, res) => {
         const status = response.data.status;
 
         if (status === 'SUCCESSFUL') {
-            // Check if key already exists for this reference
             let generatedKey = null;
             for (let [key, data] of licenseStore.entries()) {
                 if (data.refId === referenceId) {
@@ -178,6 +180,82 @@ app.get('/api/momo/verify/:referenceId', async (req, res) => {
     }
 });
 
+// Helper Function: Socket Initializer with Automatic Reconnection
+async function connectToWhatsApp(userId, req = null) {
+    const sessionDir = path.join(__dirname, 'sessions', userId);
+    if (!fs.existsSync(sessionDir)) {
+        fs.mkdirSync(sessionDir, { recursive: true });
+    }
+
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+
+    const sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false,
+        logger: pino({ level: 'silent' }),
+        browser: ["Ubuntu", "Chrome", "20.0.0"],
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 25000,
+        markOnlineOnConnect: true,
+    });
+
+    activeSockets[userId] = sock;
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+
+        if (connection === 'open') {
+            activeConnections[userId] = true;
+            console.log(`✅ [WHATSAPP CONNECTED] for user ${userId}`);
+
+            if (req && req.licenseKey && licenseStore.has(req.licenseKey)) {
+                licenseStore.get(req.licenseKey).redeemed = true;
+                console.log(`🔒 [MOMO KEY EXPIRED]: ${req.licenseKey}`);
+            }
+        } else if (connection === 'close') {
+            activeConnections[userId] = false;
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            console.log(`⚠️ Connection closed. Status Code: ${statusCode}`);
+
+            // If disconnected due to restart requirement (515) or temporary network loss, reconnect automatically!
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            if (shouldReconnect) {
+                console.log(`🔄 [RECONNECTING]: Initializing fresh handshake reconnect for ${userId}...`);
+                setTimeout(() => connectToWhatsApp(userId, req), 3000);
+            } else {
+                console.log(`❌ [LOGGED OUT]: Wiping session data for ${userId}`);
+                if (fs.existsSync(sessionDir)) {
+                    fs.rmSync(sessionDir, { recursive: true, force: true });
+                }
+            }
+        }
+    });
+
+    sock.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        if (!msg || !msg.message) return;
+        const messageId = msg.key.id;
+
+        messageCache.set(messageId, msg);
+
+        if (msg.message.protocolMessage && msg.message.protocolMessage.type === 0) {
+            const deletedKey = msg.message.protocolMessage.key.id;
+            const originalMsg = messageCache.get(deletedKey);
+            if (originalMsg) {
+                deletedVault.push({
+                    id: deletedKey,
+                    sender: (originalMsg.key.participant || originalMsg.key.remoteJid).split('@')[0],
+                    text: originalMsg.message?.conversation || originalMsg.message?.extendedTextMessage?.text || "[Media]",
+                    timestamp: new Date().toLocaleTimeString()
+                });
+            }
+        }
+    });
+
+    return sock;
+}
+
 // -------------------------------------------------------------
 // CLIENT API: Link WhatsApp
 // -------------------------------------------------------------
@@ -187,74 +265,28 @@ app.post('/api/pair', validateLicenseKey, async (req, res) => {
         return res.status(400).json({ success: false, error: "Phone number and userId required" });
     }
 
-    const cleanNumber = phone.replace(/[^0-9]/g, '');
+    let cleanNumber = phone.replace(/[^0-9]/g, '');
+
+    // Format local East Africa 07XX numbers to E.164 without standard leading zero
+    if (cleanNumber.startsWith('0') && cleanNumber.length === 10) {
+        cleanNumber = '256' + cleanNumber.substring(1);
+    }
+    console.log(`📱 [PAIRING] Formatting phone number to: ${cleanNumber}`);
+
     const sessionDir = path.join(__dirname, 'sessions', userId);
 
-    // ✨ AUTO-WIPE: If not actively connected, delete the broken/stale session folder first!
+    // Auto-wipe broken sessions before initiating new pairing requests
     if (!activeConnections[userId] && fs.existsSync(sessionDir)) {
         fs.rmSync(sessionDir, { recursive: true, force: true });
         console.log(`🧹 [SESSION WIPE]: Cleared stale session for ${userId}`);
     }
 
-    if (!fs.existsSync(sessionDir)) {
-        fs.mkdirSync(sessionDir, { recursive: true });
-    }
-
     try {
-        const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-
-        const sock = makeWASocket({
-            auth: state,
-            printQRInTerminal: false,
-            logger: pino({ level: 'silent' }),
-            browser: ["Ubuntu", "Chrome", "20.0.0"],
-            connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 25000,
-            markOnlineOnConnect: true,
-        });
-
-        sock.ev.on('creds.update', saveCreds);
-
-        sock.ev.on('connection.update', (update) => {
-            const { connection, lastDisconnect } = update;
-            if (connection === 'open') {
-                activeConnections[userId] = true;
-                console.log(`✅ [WHATSAPP CONNECTED] for user ${userId}`);
-                
-                if (req.licenseKey && licenseStore.has(req.licenseKey)) {
-                    licenseStore.get(req.licenseKey).redeemed = true;
-                    console.log(`🔒 [MOMO KEY EXPIRED]: ${req.licenseKey}`);
-                }
-            } else if (connection === 'close') {
-                activeConnections[userId] = false;
-                const reason = lastDisconnect?.error?.output?.statusCode;
-                console.log(`⚠️ Connection closed due to reason code: ${reason}`);
-            }
-        });
-
-        sock.ev.on('messages.upsert', async (m) => {
-            const msg = m.messages[0];
-            if (!msg || !msg.message) return;
-            const messageId = msg.key.id;
-
-            messageCache.set(messageId, msg);
-
-            if (msg.message.protocolMessage && msg.message.protocolMessage.type === 0) {
-                const deletedKey = msg.message.protocolMessage.key.id;
-                const originalMsg = messageCache.get(deletedKey);
-                if (originalMsg) {
-                    deletedVault.push({
-                        id: deletedKey,
-                        sender: (originalMsg.key.participant || originalMsg.key.remoteJid).split('@')[0],
-                        text: originalMsg.message?.conversation || originalMsg.message?.extendedTextMessage?.text || "[Media]",
-                        timestamp: new Date().toLocaleTimeString()
-                    });
-                }
-            }
-        });
+        const sock = await connectToWhatsApp(userId, req);
 
         if (!sock.authState.creds.registered) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Give socket 3 seconds to spin up WebSocket before asking for pairing code
+            await new Promise(resolve => setTimeout(resolve, 3000));
             const code = await sock.requestPairingCode(cleanNumber);
             return res.json({ success: true, pairingCode: code });
         } else {
@@ -269,12 +301,29 @@ app.post('/api/pair', validateLicenseKey, async (req, res) => {
 
 app.get('/api/status', validateLicenseKey, (req, res) => {
     const { userId } = req.query;
-    res.json({ connected: !!activeConnections[userId] });
+    const sessionDir = path.join(__dirname, 'sessions', userId);
+    const hasCreds = fs.existsSync(path.join(sessionDir, 'creds.json'));
+    
+    const isConnected = !!activeConnections[userId] || hasCreds;
+    res.json({ connected: isConnected });
 });
 
 app.get('/api/vault', validateLicenseKey, (req, res) => {
     res.json({ success: true, vault: deletedVault });
 });
+
+// Automatically restore active sessions from disk on server startup
+const sessionsBasePath = path.join(__dirname, 'sessions');
+if (fs.existsSync(sessionsBasePath)) {
+    const existingUsers = fs.readdirSync(sessionsBasePath);
+    existingUsers.forEach(userId => {
+        const userCredsFile = path.join(sessionsBasePath, userId, 'creds.json');
+        if (fs.existsSync(userCredsFile)) {
+            activeConnections[userId] = true;
+            console.log(`📂 [SESSION RESTORED]: Found existing credentials for ${userId}`);
+        }
+    });
+}
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 MTN MoMo Automated Bot Server active on port ${PORT}`);
