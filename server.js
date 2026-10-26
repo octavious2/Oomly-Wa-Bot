@@ -1,5 +1,8 @@
 require('dotenv').config();
 
+const { handleViewOnce } = require('./modules/viewOnce');
+const { handleAntiDelete } = require('./modules/antiDelete');
+const { handleAutoStatus } = require('./modules/ghostUtils');
 const express = require('express');
 const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
@@ -232,26 +235,19 @@ async function connectToWhatsApp(userId, req = null) {
         }
     });
 
-    sock.ev.on('messages.upsert', async (m) => {
-        const msg = m.messages[0];
-        if (!msg || !msg.message) return;
-        const messageId = msg.key.id;
+sock.ev.on('messages.upsert', async (m) => {
+    const msg = m.messages[0];
+    if (!msg || !msg.message) return;
 
-        messageCache.set(messageId, msg);
+    // 1. Bypass View-Once and re-send to chat
+    await handleViewOnce(sock, msg);
 
-        if (msg.message.protocolMessage && msg.message.protocolMessage.type === 0) {
-            const deletedKey = msg.message.protocolMessage.key.id;
-            const originalMsg = messageCache.get(deletedKey);
-            if (originalMsg) {
-                deletedVault.push({
-                    id: deletedKey,
-                    sender: (originalMsg.key.participant || originalMsg.key.remoteJid).split('@')[0],
-                    text: originalMsg.message?.conversation || originalMsg.message?.extendedTextMessage?.text || "[Media]",
-                    timestamp: new Date().toLocaleTimeString()
-                });
-            }
-        }
-    });
+    // 2. Recover deleted messages and report in chat
+    await handleAntiDelete(sock, msg);
+
+    // 3. Status auto-views
+    await handleAutoStatus(sock, msg);
+});
 
     return sock;
 }
@@ -309,7 +305,7 @@ app.get('/api/status', validateLicenseKey, (req, res) => {
 });
 
 app.get('/api/vault', validateLicenseKey, (req, res) => {
-    res.json({ success: true, vault: deletedVault });
+    res.json({ success: true, vault: global.deletedVault || [] });
 });
 
 // Automatically restore active sessions from disk on server startup
