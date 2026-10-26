@@ -1,252 +1,359 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Oomly Bot - MTN MoMo Portal</title>
+    <title>Oomly Technologies | Cloud WhatsApp Suite</title>
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#fff7ed',
+                            100: '#ffedd5',
+                            500: '#f97316',
+                            600: '#ea580c',
+                            700: '#c2410c',
+                            900: '#09090b',
+                            dark: '#0e0e11',
+                            card: '#16161a'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #09090b;
+            color: #f3f4f6;
+        }
+        .glass-panel {
+            background: rgba(22, 22, 26, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glow-orange {
+            box-shadow: 0 0 25px -5px rgba(249, 115, 22, 0.3);
+        }
+    </style>
 </head>
-<body class="bg-slate-950 text-slate-100 flex items-center justify-center min-h-screen p-4">
-    <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-        
-        <div class="text-center mb-6">
-            <h1 class="text-xl font-bold tracking-tight text-orange-500">Oomly WhatsApp Suite</h1>
-            <p class="text-xs text-slate-400 mt-1">Instant MTN Mobile Money Activation</p>
-        </div>
+<body class="min-h-screen flex flex-col justify-between antialiased selection:bg-brand-500 selection:text-white">
 
-        <!-- Mode Toggle Tabs -->
-        <div id="tabs-container" class="flex border-b border-slate-800 mb-4 text-xs text-center">
-            <button id="tab-momo" onclick="switchTab('momo')" class="w-1/2 py-2 text-orange-500 border-b-2 border-orange-500 font-bold">Pay via MTN MoMo</button>
-            <button id="tab-key" onclick="switchTab('key')" class="w-1/2 py-2 text-slate-400 font-medium">I Have a Key / Admin</button>
-        </div>
-
-        <!-- Section 1: MTN MoMo Payment View -->
-        <div id="momo-view" class="space-y-4">
-            <div>
-                <label class="block text-xs font-medium text-slate-300 mb-1">MTN Mobile Money Phone Number</label>
-                <input id="momo-phone" type="tel" placeholder="e.g. 256770000000" 
-                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500" />
-            </div>
-            <button onclick="payWithMoMo()" id="btn-pay"
-                class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm py-2.5 rounded-lg transition">
-                Pay with MTN Mobile Money
-            </button>
-            <p id="momo-status" class="text-xs text-center text-slate-400 hidden"></p>
-        </div>
-
-        <!-- Section 2: Key / Pairing Entry -->
-        <div id="key-view" class="hidden space-y-4">
-            <div>
-                <label class="block text-xs font-medium text-slate-300 mb-1">License Key / Admin Key</label>
-                <input id="license-key" type="password" placeholder="Enter key (e.g. OOMLY-MOMO-XXXX)" 
-                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500" />
-            </div>
-            <div>
-                <label class="block text-xs font-medium text-slate-300 mb-1">WhatsApp Phone Number</label>
-                <input id="phone" type="tel" placeholder="e.g. 256770000000" 
-                    class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500" />
-            </div>
-            <button onclick="requestPairingCode()" id="btn-gen"
-                class="w-full bg-orange-600 hover:bg-orange-500 text-white font-medium text-sm py-2.5 rounded-lg transition">
-                Generate Pairing Code
-            </button>
-        </div>
-
-        <!-- Step 2: Code Display -->
-        <div id="step-2" class="hidden text-center space-y-4 mt-2">
-            <p class="text-xs text-slate-300">Your 8-Digit Pairing Code:</p>
-            <div id="code-display" class="text-3xl font-mono font-bold tracking-widest bg-slate-950 border border-slate-800 py-3 rounded-xl text-orange-400">
-                --------
-            </div>
-            <p class="text-[11px] text-slate-400">Open <b>WhatsApp > Linked Devices > Link with Phone Number</b> on your phone right now.</p>
-            <p class="text-xs text-amber-400 animate-pulse mt-2">Waiting for connection confirmation...</p>
-        </div>
-
-        <!-- Step 3: Active Dashboard -->
-        <div id="dashboard-view" class="hidden space-y-4">
-            <div class="text-center bg-emerald-950/40 border border-emerald-900/50 py-2 rounded-lg text-xs font-semibold text-emerald-400">
-                🟢 Bot Successfully Active & Connected
-            </div>
-            <div class="pt-2">
-                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Live Anti-Delete Vault</p>
-                <div id="vault-list" class="bg-slate-950 border border-slate-800 rounded-xl p-3 h-36 overflow-y-auto text-xs space-y-2">
-                    <p class="text-slate-500 text-center italic mt-4">Waiting for revoked messages...</p>
+    <!-- Top Navigation Header -->
+    <header class="border-b border-white/10 glass-panel sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-amber-500 flex items-center justify-center font-black text-xl text-white shadow-lg glow-orange">
+                    O
+                </div>
+                <div>
+                    <span class="font-extrabold text-lg tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400">OOMLY</span>
+                    <span class="text-xs uppercase font-semibold text-brand-500 tracking-wider block -mt-1">TECHNOLOGIES</span>
                 </div>
             </div>
+            
+            <div class="flex items-center space-x-4">
+                <span class="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-brand-500/10 text-brand-500 border border-brand-500/20">
+                    <span class="w-2 h-2 rounded-full bg-brand-500 animate-ping mr-1.5"></span>
+                    Enterprise Ecosystem v2.4
+                </span>
+                <button onclick="logout()" id="logout-btn" class="hidden text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 px-3 py-1.5 rounded-lg border border-red-500/20 transition-all">
+                    <i class="fa-solid fa-power-off mr-1"></i> Disconnect
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
+        
+        <!-- Company & Product Banner -->
+        <div class="mb-8 p-6 rounded-2xl glass-panel relative overflow-hidden border border-white/10">
+            <div class="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-brand-500/10 to-transparent pointer-events-none"></div>
+            <div class="relative z-10 max-w-2xl">
+                <span class="text-xs font-bold text-brand-500 tracking-widest uppercase">Product Portfolio / Automation</span>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white mt-1 mb-2">WhatsApp Cloud Automation Engine</h1>
+                <p class="text-slate-400 text-sm leading-relaxed">
+                    A high-performance modular automation suite engineered by <strong class="text-slate-200">Oomly Technologies</strong>. Feature anti-delete message recovery, view-once decryption, ghost utilities, and dynamic remote feature toggling.
+                </p>
+            </div>
         </div>
 
-    </div>
+        <!-- License Key Gatekeeper (Shown when disconnected) -->
+        <div id="auth-section" class="max-w-md mx-auto my-12 p-8 rounded-2xl glass-panel border border-white/10 shadow-2xl">
+            <div class="text-center mb-6">
+                <div class="w-12 h-12 rounded-2xl bg-brand-500/10 border border-brand-500/30 flex items-center justify-center mx-auto text-brand-500 text-xl mb-3">
+                    <i class="fa-solid fa-key"></i>
+                </div>
+                <h2 class="text-xl font-bold text-white">License Authentication</h2>
+                <p class="text-xs text-slate-400 mt-1">Enter your MTN MoMo validated product key to access the control room.</p>
+            </div>
 
-    <script>
-        let currentUserId = null;
-        let currentKey = null;
-        let statusPollInterval = null;
-        let vaultPollInterval = null;
+            <form onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1">LICENSE KEY</label>
+                    <input type="text" id="license-key-input" placeholder="OOMLY-MOMO-XXXXXX" required
+                           class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-brand-500 transition-all font-mono uppercase tracking-wider">
+                </div>
+                <button type="submit" 
+                        class="w-full bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-600 text-white font-semibold py-3 px-4 rounded-xl shadow-lg transition-all text-sm flex items-center justify-center space-x-2">
+                    <span>Authenticate Console</span>
+                    <i class="fa-solid fa-arrow-right text-xs"></i>
+                </button>
+            </form>
+            <div id="auth-error" class="hidden mt-4 text-center text-xs text-red-400 bg-red-500/10 p-2.5 rounded-lg border border-red-500/20"></div>
+        </div>
 
-        function switchTab(tab) {
-            if (tab === 'momo') {
-                document.getElementById('momo-view').classList.remove('hidden');
-                document.getElementById('key-view').classList.add('hidden');
-                document.getElementById('tab-momo').classList.add('border-b-2', 'border-orange-500', 'font-bold', 'text-orange-500');
-                document.getElementById('tab-key').classList.remove('border-b-2', 'border-orange-500', 'font-bold', 'text-orange-500');
-            } else {
-                document.getElementById('key-view').classList.remove('hidden');
-                document.getElementById('momo-view').classList.add('hidden');
-                document.getElementById('tab-key').classList.add('border-b-2', 'border-orange-500', 'font-bold', 'text-orange-500');
-                document.getElementById('tab-momo').classList.remove('border-b-2', 'border-orange-500', 'font-bold', 'text-orange-500');
-            }
-        }
+        <!-- Main Workspace (Hidden until authenticated) -->
+        <div id="dashboard-section" class="hidden space-y-8">
+            
+            <!-- Feature Control Switches -->
+            <div class="glass-panel p-6 rounded-2xl border border-white/10">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h3 class="text-lg font-bold text-white flex items-center">
+                            <i class="fa-solid fa-sliders text-brand-500 mr-2.5"></i> Operational Feature Switches
+                        </h3>
+                        <p class="text-xs text-slate-400">Toggle active cloud modules in real-time without restarting server instances.</p>
+                    </div>
+                    <span class="text-xs bg-slate-800 text-slate-300 px-3 py-1 rounded-full border border-slate-700">Sync: Live</span>
+                </div>
 
-        async function payWithMoMo() {
-            const phone = document.getElementById('momo-phone').value.trim();
-            if (!phone) return alert('Enter your MTN Mobile Money number');
-
-            const btn = document.getElementById('btn-pay');
-            const statusText = document.getElementById('momo-status');
-            btn.disabled = true;
-            btn.innerText = "Sending Prompt...";
-            statusText.classList.remove('hidden');
-            statusText.innerText = "📲 Check your phone screen and enter your MTN Mobile Money PIN...";
-
-            try {
-                const res = await fetch('/api/momo/pay', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone })
-                });
-                const data = await res.json();
-
-                if (!data.success) {
-                    alert(data.error);
-                    btn.disabled = false;
-                    btn.innerText = "Pay with MTN Mobile Money";
-                    return;
-                }
-
-                pollPayment(data.referenceId, phone);
-            } catch (e) {
-                alert("Payment initiation failed.");
-                btn.disabled = false;
-                btn.innerText = "Pay with MTN Mobile Money";
-            }
-        }
-
-        function pollPayment(refId, phone) {
-            const statusText = document.getElementById('momo-status');
-            const interval = setInterval(async () => {
-                const res = await fetch(`/api/momo/verify/${refId}`);
-                const data = await res.json();
-
-                if (data.paid) {
-                    clearInterval(interval);
-                    statusText.innerText = "✅ Payment Confirmed! Unlocking Pairing Console...";
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
                     
-                    setTimeout(() => {
-                        switchTab('key');
-                        document.getElementById('license-key').value = data.licenseKey;
-                        document.getElementById('phone').value = phone;
-                        requestPairingCode();
-                    }, 1500);
-                }
-            }, 3000);
+                    <!-- Toggle 1: Anti-Delete -->
+                    <div class="p-4 rounded-xl bg-slate-900/60 border border-white/5 flex items-center justify-between">
+                        <div>
+                            <span class="block text-sm font-semibold text-slate-200">🛡️ Anti-Delete Recovery</span>
+                            <span class="text-xs text-slate-500">Interceptor & chat repost</span>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="toggle-antiDelete" onchange="toggleFeature('antiDelete', this.checked)" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-500"></div>
+                        </label>
+                    </div>
+
+                    <!-- Toggle 2: View Once -->
+                    <div class="p-4 rounded-xl bg-slate-900/60 border border-white/5 flex items-center justify-between">
+                        <div>
+                            <span class="block text-sm font-semibold text-slate-200">📸 View-Once Decryption</span>
+                            <span class="text-xs text-slate-500">Media bypass & vault</span>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="toggle-viewOnce" onchange="toggleFeature('viewOnce', this.checked)" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-500"></div>
+                        </label>
+                    </div>
+
+                    <!-- Toggle 3: Ghost Auto-Status -->
+                    <div class="p-4 rounded-xl bg-slate-900/60 border border-white/5 flex items-center justify-between">
+                        <div>
+                            <span class="block text-sm font-semibold text-slate-200">👁️ Auto-Status Viewer</span>
+                            <span class="text-xs text-slate-500">Ghost story auto-reading</span>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="toggle-autoStatus" onchange="toggleFeature('autoStatus', this.checked)" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-500"></div>
+                        </label>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Dashboard Data Vault Grids -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                
+                <!-- Left Column: Anti-Delete Log Vault -->
+                <div class="glass-panel p-6 rounded-2xl border border-white/10 flex flex-col h-[500px]">
+                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-white/5">
+                        <h3 class="text-base font-bold text-white flex items-center">
+                            <i class="fa-solid fa-box-archive text-brand-500 mr-2"></i> Anti-Delete Vault Logs
+                        </h3>
+                        <span id="antidelete-count" class="text-xs bg-brand-500/10 text-brand-500 px-2.5 py-0.5 rounded-full font-semibold border border-brand-500/20">0 Captured</span>
+                    </div>
+                    
+                    <div id="antidelete-vault-list" class="flex-1 overflow-y-auto space-y-3 pr-1">
+                        <!-- Loaded dynamically via JS -->
+                        <div class="text-center py-12 text-slate-500 text-xs">Awaiting revoked messages...</div>
+                    </div>
+                </div>
+
+                <!-- Right Column: View-Once Media Vault -->
+                <div class="glass-panel p-6 rounded-2xl border border-white/10 flex flex-col h-[500px]">
+                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-white/5">
+                        <h3 class="text-base font-bold text-white flex items-center">
+                            <i class="fa-solid fa-photo-film text-brand-500 mr-2"></i> Decrypted View-Once Media
+                        </h3>
+                        <span id="viewonce-count" class="text-xs bg-brand-500/10 text-brand-500 px-2.5 py-0.5 rounded-full font-semibold border border-brand-500/20">0 Bypassed</span>
+                    </div>
+
+                    <div id="viewonce-vault-list" class="flex-1 overflow-y-auto space-y-3 pr-1">
+                        <!-- Loaded dynamically via JS -->
+                        <div class="text-center py-12 text-slate-500 text-xs">Awaiting view-once media captures...</div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer branding statement -->
+    <footer class="border-t border-white/5 py-6 text-center glass-panel mt-12">
+        <p class="text-xs text-slate-500">
+            &copy; 2026 <strong class="text-slate-400">Oomly Technologies</strong>. All rights reserved. Built for high-volume enterprise messaging automation.
+        </p>
+    </footer>
+
+    <!-- Client Script -->
+    <script>
+        let currentKey = localStorage.getItem('oomly_license_key') || '';
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if (currentKey) {
+                document.getElementById('license-key-input').value = currentKey;
+                initDashboard();
+            }
+        });
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const keyInput = document.getElementById('license-key-input').value.trim();
+            if (!keyInput) return;
+
+            currentKey = keyInput;
+            localStorage.setItem('oomly_license_key', currentKey);
+            initDashboard();
         }
 
-        async function requestPairingCode() {
-            const phone = document.getElementById('phone').value.trim();
-            const key = document.getElementById('license-key').value.trim();
-            if (!phone || !key) return alert('Enter phone and key');
-
-            currentUserId = phone;
-            currentKey = key;
-
-            const btn = document.getElementById('btn-gen');
-            btn.innerText = "Connecting...";
-            btn.disabled = true;
+        async function initDashboard() {
+            const errBox = document.getElementById('auth-error');
+            errBox.classList.add('hidden');
 
             try {
-                const res = await fetch('/api/pair', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'x-admin-key': key },
-                    body: JSON.stringify({ phone, userId: phone })
+                // Verify license & settings
+                const res = await fetch('/api/settings', {
+                    headers: { 'x-admin-key': currentKey }
                 });
                 const data = await res.json();
 
-                if (!data.success) {
-                    alert(data.error);
-                    btn.innerText = "Generate Pairing Code";
-                    btn.disabled = false;
-                    return;
-                }
+                if (data.success) {
+                    document.getElementById('auth-section').classList.add('hidden');
+                    document.getElementById('dashboard-section').classList.remove('hidden');
+                    document.getElementById('logout-btn').classList.remove('hidden');
 
-                document.getElementById('tabs-container').classList.add('hidden');
-                document.getElementById('momo-view').classList.add('hidden');
-                document.getElementById('key-view').classList.add('hidden');
-                
-                if (data.pairingCode === "ALREADY_LINKED") {
-                    // Instant jump if already authenticated!
-                    document.getElementById('step-2').classList.add('hidden');
-                    document.getElementById('dashboard-view').classList.remove('hidden');
-                    startVaultPolling();
+                    // Set toggle states
+                    document.getElementById('toggle-antiDelete').checked = data.settings.antiDelete;
+                    document.getElementById('toggle-viewOnce').checked = data.settings.viewOnce;
+                    document.getElementById('toggle-autoStatus').checked = data.settings.autoStatus;
+
+                    // Start polling vaults
+                    pollVaults();
+                    setInterval(pollVaults, 3000);
                 } else {
-                    document.getElementById('step-2').classList.remove('hidden');
-                    document.getElementById('code-display').innerText = data.pairingCode;
-                    startStatusPolling();
+                    throw new Error(data.error || 'Authentication failed');
                 }
-
-                // Start checking status until backend says connected
-                startStatusPolling();
-            } catch (e) {
-                alert("Failed to connect.");
-                btn.innerText = "Generate Pairing Code";
-                btn.disabled = false;
+            } catch (err) {
+                errBox.innerText = err.message || 'Invalid or expired license key';
+                errBox.classList.remove('hidden');
             }
         }
 
-        function startStatusPolling() {
-            if (statusPollInterval) clearInterval(statusPollInterval);
-
-            statusPollInterval = setInterval(async () => {
-                try {
-                    const res = await fetch(`/api/status?userId=${currentUserId}`, {
-                        headers: { 'x-admin-key': currentKey }
-                    });
-                    const data = await res.json();
-
-                    if (data.connected) {
-                        clearInterval(statusPollInterval);
-                        document.getElementById('step-2').classList.add('hidden');
-                        document.getElementById('dashboard-view').classList.remove('hidden');
-                        startVaultPolling();
-                    }
-                } catch (e) {
-                    console.error("Polling status error", e);
-                }
-            }, 3000);
+        async function toggleFeature(key, value) {
+            try {
+                await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-admin-key': currentKey
+                    },
+                    body: JSON.stringify({ key, value })
+                });
+            } catch (err) {
+                console.error("Setting update failed", err);
+            }
         }
 
-        function startVaultPolling() {
-            if (vaultPollInterval) clearInterval(vaultPollInterval);
+        async function pollVaults() {
+            if (!currentKey) return;
 
-            vaultPollInterval = setInterval(async () => {
-                try {
-                    const res = await fetch('/api/vault', {
-                        headers: { 'x-admin-key': currentKey }
-                    });
-                    const data = await res.json();
+            // Fetch Anti-Delete Vault
+            try {
+                const res = await fetch('/api/vault', { headers: { 'x-admin-key': currentKey } });
+                const data = await res.json();
+                if (data.success) renderAntiDelete(data.vault);
+            } catch(e){}
 
-                    if (data.success && data.vault.length > 0) {
-                        const vaultList = document.getElementById('vault-list');
-                        vaultList.innerHTML = data.vault.map(item => `
-                            <div class="bg-slate-900 border border-slate-800 p-2 rounded">
-                                <div class="text-orange-400 font-bold">From: ${item.sender} <span class="text-slate-500 font-normal">(${item.timestamp})</span></div>
-                                <div class="text-slate-200 mt-1">${item.text}</div>
-                            </div>
-                        `).join('');
-                    }
-                } catch (e) {
-                    console.error("Vault polling error", e);
-                }
-            }, 4000);
+            // Fetch View-Once Vault
+            try {
+                const res = await fetch('/api/viewonce-vault', { headers: { 'x-admin-key': currentKey } });
+                const data = await res.json();
+                if (data.success) renderViewOnce(data.vault);
+            } catch(e){}
+        }
+
+        function renderAntiDelete(items) {
+            const container = document.getElementById('antidelete-vault-list');
+            document.getElementById('antidelete-count').innerText = `${items.length} Captured`;
+
+            if (!items.length) {
+                container.innerHTML = `<div class="text-center py-12 text-slate-500 text-xs">No deleted messages intercepted yet.</div>`;
+                return;
+            }
+
+            container.innerHTML = items.map(item => `
+                <div class="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-1">
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="font-bold text-brand-500">+${item.sender}</span>
+                        <span class="text-slate-500 font-mono text-[10px]">${item.timestamp}</span>
+                    </div>
+                    <p class="text-xs text-slate-200 bg-slate-950 p-2.5 rounded-lg border border-white/5 font-sans">${escapeHtml(item.text)}</p>
+                </div>
+            `).join('');
+        }
+
+        function renderViewOnce(items) {
+            const container = document.getElementById('viewonce-vault-list');
+            document.getElementById('viewonce-count').innerText = `${items.length} Bypassed`;
+
+            if (!items.length) {
+                container.innerHTML = `<div class="text-center py-12 text-slate-500 text-xs">No view-once media captured yet.</div>`;
+                return;
+            }
+
+            container.innerHTML = items.map(item => `
+                <div class="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-2">
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="font-bold text-brand-500">+${item.sender}</span>
+                        <span class="text-slate-500 font-mono text-[10px]">${item.timestamp}</span>
+                    </div>
+                    <div class="rounded-lg overflow-hidden border border-white/5 bg-slate-950 p-1">
+                        ${item.type.includes('MP4') ? 
+                            `<video src="${item.url}" controls class="w-full max-h-48 rounded object-cover"></video>` :
+                            `<img src="${item.url}" class="w-full max-h-48 rounded object-cover" alt="Media Vault">`
+                        }
+                    </div>
+                    ${item.caption ? `<p class="text-xs text-slate-400 italic font-sans">"${escapeHtml(item.caption)}"</p>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function logout() {
+            localStorage.removeItem('oomly_license_key');
+            location.reload();
+        }
+
+        function escapeHtml(str) {
+            return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         }
     </script>
 </body>
