@@ -1,14 +1,10 @@
 const { getSettings } = require('./settings');
 
-if (!global.deletedVault) global.deletedVault = [];
 if (!global.messageCache) global.messageCache = new Map();
 
-// Helper to reliably extract clean phone/sender identifiers from JIDs
 function cleanSenderId(jidOrParticipant) {
     if (!jidOrParticipant) return "Unknown";
-    // Handles formats like "2567XXXXX:2@s.whatsapp.net" or "2567XXXXX@s.whatsapp.net"
-    const base = jidOrParticipant.split('@')[0];
-    return base.split(':')[0];
+    return jidOrParticipant.split('@')[0].split(':')[0];
 }
 
 async function handleAntiDelete(sock, msg) {
@@ -16,14 +12,14 @@ async function handleAntiDelete(sock, msg) {
     if (!msg || !msg.message) return;
     const messageId = msg.key.id;
 
-    // 1. Cache message
+    // Cache message
     if (global.messageCache.size > 1000) {
         const firstKey = global.messageCache.keys().next().value;
         global.messageCache.delete(firstKey);
     }
     global.messageCache.set(messageId, msg);
 
-    // 2. Check for deletion (protocolMessage type === 0)
+    // Detect message deletion (protocolMessage type === 0)
     if (msg.message.protocolMessage && msg.message.protocolMessage.type === 0) {
         const deletedKey = msg.message.protocolMessage.key.id;
         const originalMsg = global.messageCache.get(deletedKey);
@@ -40,20 +36,17 @@ async function handleAntiDelete(sock, msg) {
                 || innerMsg.videoMessage?.caption 
                 || "[Media / Attachment]";
 
-            // Save to web dashboard vault
-            global.deletedVault.unshift({
-                id: deletedKey,
-                sender: senderPhone,
-                text: textContent,
-                timestamp: new Date().toLocaleTimeString()
-            });
+            console.log(`🗑️ [ANTI-DELETE]: Intercepted deletion from ${senderPhone}: "${textContent}"`);
 
-            console.log(`🗑️ [ANTI-DELETE]: Recovered message from ${senderPhone}: "${textContent}"`);
-
-            await sock.sendMessage(remoteJid, {
-                text: `🛡️ *Anti-Delete Alert*\n\n👤 *Sender:* @${senderPhone}\n💬 *Deleted Message:* "${textContent}"`,
-                mentions: [`${senderPhone}@s.whatsapp.net`]
-            });
+            // Send private notification to the bot owner's chat
+            try {
+                const ownerJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                await sock.sendMessage(ownerJid, {
+                    text: `🛡️ *Anti-Delete Intercept*\n\n📍 *Chat:* ${remoteJid.includes('@g.us') ? 'Group Chat' : 'Direct Message'}\n👤 *Sender ID:* ${senderPhone}\n💬 *Deleted Text:* "${textContent}"`
+                });
+            } catch (e) {
+                console.error("Anti-delete notification dispatch error:", e.message);
+            }
         }
     }
 }
