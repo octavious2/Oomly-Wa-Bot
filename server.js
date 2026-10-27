@@ -239,12 +239,16 @@ async function connectToWhatsApp(userId, req = null) {
         }
     });
 
-    sock.ev.on('messages.upsert', async (m) => {
+sock.ev.on('messages.upsert', async (m) => {
         try {
             const msg = m.messages[0];
             if (!msg || !msg.message) return;
 
-            // Run modules safely with error boundary wrappers
+            const chatJid = msg.key.remoteJid;
+            const sender = msg.key.participant || chatJid;
+            const keys = Object.keys(msg.message);
+            console.log(`📥 [INCOMING MESSAGE]: From ${sender} | Type Keys:`, keys);
+
             await handleViewOnce(sock, msg).catch(e => console.error("ViewOnce Error:", e.message));
             await handleAntiDelete(sock, msg).catch(e => console.error("AntiDelete Error:", e.message));
             await handleAutoStatus(sock, msg).catch(e => console.error("AutoStatus Error:", e.message));
