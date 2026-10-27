@@ -74,47 +74,101 @@
     </header>
 
     <!-- Main Content Container -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
+    <main class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex-1 w-full">
         
         <!-- Company & Product Banner -->
-        <div class="mb-8 p-6 rounded-2xl glass-panel relative overflow-hidden border border-white/10">
+        <div class="mb-8 p-6 rounded-2xl glass-panel relative overflow-hidden border border-white/10 text-center">
             <div class="absolute right-0 top-0 bottom-0 w-1/3 bg-gradient-to-l from-brand-500/10 to-transparent pointer-events-none"></div>
-            <div class="relative z-10 max-w-2xl">
-                <span class="text-xs font-bold text-brand-500 tracking-widest uppercase">Product Portfolio / Automation</span>
-                <h1 class="text-2xl sm:text-3xl font-extrabold text-white mt-1 mb-2">WhatsApp Cloud Automation Engine</h1>
+            <div class="relative z-10 max-w-xl mx-auto">
+                <span class="text-xs font-bold text-brand-500 tracking-widest uppercase">Cloud WhatsApp Automation</span>
+                <h1 class="text-2xl sm:text-3xl font-extrabold text-white mt-1 mb-2">Control Room & Device Link</h1>
                 <p class="text-slate-400 text-sm leading-relaxed">
-                    A high-performance modular automation suite engineered by <strong class="text-slate-200">Oomly Technologies</strong>. Feature anti-delete message recovery, view-once decryption, ghost utilities, and dynamic remote feature toggling.
+                    Manage your active cloud modules and pair your WhatsApp device securely. View-once bypass (`.vv`) and Anti-Delete notifications operate directly inside your personal chat.
                 </p>
             </div>
         </div>
 
-        <!-- License Key Gatekeeper (Shown when disconnected) -->
-        <div id="auth-section" class="max-w-md mx-auto my-12 p-8 rounded-2xl glass-panel border border-white/10 shadow-2xl">
-            <div class="text-center mb-6">
-                <div class="w-12 h-12 rounded-2xl bg-brand-500/10 border border-brand-500/30 flex items-center justify-center mx-auto text-brand-500 text-xl mb-3">
-                    <i class="fa-solid fa-key"></i>
-                </div>
-                <h2 class="text-xl font-bold text-white">License Authentication</h2>
-                <p class="text-xs text-slate-400 mt-1">Enter your MTN MoMo validated product key to access the control room.</p>
+        <!-- SECTION 1: Onboarding & Payment Gateway (Shown when not logged in) -->
+        <div id="auth-section" class="space-y-6">
+            
+            <!-- Tabs Switcher -->
+            <div class="flex rounded-xl bg-slate-900 p-1 border border-white/5 max-w-md mx-auto">
+                <button onclick="switchTab('pay')" id="tab-pay-btn" class="flex-1 py-2.5 text-xs font-bold rounded-lg bg-brand-500 text-white shadow transition-all">
+                    <i class="fa-solid fa-wallet mr-1.5"></i> Get License via MoMo
+                </button>
+                <button onclick="switchTab('login')" id="tab-login-btn" class="flex-1 py-2.5 text-xs font-bold rounded-lg text-slate-400 hover:text-white transition-all">
+                    <i class="fa-solid fa-key mr-1.5"></i> Already Have Key?
+                </button>
             </div>
 
-            <form onsubmit="handleLogin(event)" class="space-y-4">
-                <div>
-                    <label class="block text-xs font-semibold text-slate-300 mb-1">LICENSE KEY</label>
-                    <input type="text" id="license-key-input" placeholder="OOMLY-MOMO-XXXXXX" required
-                           class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-brand-500 transition-all font-mono uppercase tracking-wider">
+            <!-- Tab Content: Pay with MoMo -->
+            <div id="pane-pay" class="max-w-md mx-auto p-8 rounded-2xl glass-panel border border-white/10 shadow-2xl">
+                <div class="text-center mb-6">
+                    <div class="w-12 h-12 rounded-2xl bg-brand-500/10 border border-brand-500/30 flex items-center justify-center mx-auto text-brand-500 text-xl mb-3">
+                        <i class="fa-solid fa-mobile-screen"></i>
+                    </div>
+                    <h2 class="text-xl font-bold text-white">MTN Mobile Money Checkout</h2>
+                    <p class="text-xs text-slate-400 mt-1">Enter your phone number to receive a payment authorization prompt.</p>
                 </div>
-                <button type="submit" 
-                        class="w-full bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-600 text-white font-semibold py-3 px-4 rounded-xl shadow-lg transition-all text-sm flex items-center justify-center space-x-2">
-                    <span>Authenticate Console</span>
-                    <i class="fa-solid fa-arrow-right text-xs"></i>
-                </button>
-            </form>
-            <div id="auth-error" class="hidden mt-4 text-center text-xs text-red-400 bg-red-500/10 p-2.5 rounded-lg border border-red-500/20"></div>
+
+                <form onsubmit="handleMoMoPay(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">MOBILE NUMBER (MTN)</label>
+                        <input type="text" id="momo-phone-input" placeholder="077XXXXXXXX or 25677XXXXXXX" required
+                               class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-brand-500 transition-all font-mono">
+                    </div>
+                    <button type="submit" id="pay-submit-btn"
+                            class="w-full bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-600 text-white font-semibold py-3 px-4 rounded-xl shadow-lg transition-all text-sm flex items-center justify-center space-x-2">
+                        <span>Pay Bot Access Fee</span>
+                        <i class="fa-solid fa-arrow-right text-xs"></i>
+                    </button>
+                </form>
+
+                <!-- Payment Status / Polling Box -->
+                <div id="momo-status-box" class="hidden mt-6 p-4 rounded-xl bg-slate-950 border border-white/10 text-center space-y-3">
+                    <div class="flex items-center justify-center space-x-2 text-brand-500 text-xs font-bold">
+                        <i class="fa-solid fa-circle-notch animate-spin"></i>
+                        <span id="momo-status-text">Waiting for PIN confirmation on phone...</span>
+                    </div>
+                    <div id="generated-key-container" class="hidden space-y-2 pt-2 border-t border-white/5">
+                        <span class="text-[11px] text-slate-400 block">Your Activated License Key:</span>
+                        <div id="display-generated-key" class="bg-slate-900 p-2.5 rounded-lg font-mono font-bold text-brand-500 text-sm tracking-wider select-all"></div>
+                        <button onclick="useGeneratedKey()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold py-2 rounded-lg transition-all">
+                            Access Control Room <i class="fa-solid fa-check ml-1"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Content: Existing Key Login -->
+            <div id="pane-login" class="hidden max-w-md mx-auto p-8 rounded-2xl glass-panel border border-white/10 shadow-2xl">
+                <div class="text-center mb-6">
+                    <div class="w-12 h-12 rounded-2xl bg-brand-500/10 border border-brand-500/30 flex items-center justify-center mx-auto text-brand-500 text-xl mb-3">
+                        <i class="fa-solid fa-key"></i>
+                    </div>
+                    <h2 class="text-xl font-bold text-white">License Authentication</h2>
+                    <p class="text-xs text-slate-400 mt-1">Enter your MoMo validated product key to open your control room.</p>
+                </div>
+
+                <form onsubmit="handleLogin(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">LICENSE KEY</label>
+                        <input type="text" id="license-key-input" placeholder="OOMLY-MOMO-XXXXXX" required
+                               class="w-full bg-slate-950 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-brand-500 transition-all font-mono uppercase tracking-wider">
+                    </div>
+                    <button type="submit" 
+                            class="w-full bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-600 text-white font-semibold py-3 px-4 rounded-xl shadow-lg transition-all text-sm flex items-center justify-center space-x-2">
+                        <span>Authenticate Console</span>
+                        <i class="fa-solid fa-arrow-right text-xs"></i>
+                    </button>
+                </form>
+            </div>
+
+            <div id="auth-error" class="hidden max-w-md mx-auto text-center text-xs text-red-400 bg-red-500/10 p-3 rounded-xl border border-red-500/20"></div>
         </div>
 
-        <!-- Main Workspace (Hidden until authenticated) -->
-        <div id="dashboard-section" class="hidden space-y-8">
+        <!-- SECTION 2: Main Workspace (Hidden until authenticated) -->
+        <div id="dashboard-section" class="hidden space-y-6">
 
             <!-- Device Pairing Panel -->
             <div class="glass-panel p-6 rounded-2xl border border-white/10">
@@ -166,8 +220,8 @@
                     <!-- Toggle 1: Anti-Delete -->
                     <div class="p-4 rounded-xl bg-slate-900/60 border border-white/5 flex items-center justify-between">
                         <div>
-                            <span class="block text-sm font-semibold text-slate-200">🛡️ Anti-Delete Recovery</span>
-                            <span class="text-xs text-slate-500">Interceptor & chat repost</span>
+                            <span class="block text-sm font-semibold text-slate-200">🛡️ Anti-Delete</span>
+                            <span class="text-xs text-slate-500">Private owner alerts</span>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="toggle-antiDelete" onchange="toggleFeature('antiDelete', this.checked)" class="sr-only peer">
@@ -179,7 +233,7 @@
                     <div class="p-4 rounded-xl bg-slate-900/60 border border-white/5 flex items-center justify-between">
                         <div>
                             <span class="block text-sm font-semibold text-slate-200">📸 View-Once Decryption</span>
-                            <span class="text-xs text-slate-500">Media bypass & vault</span>
+                            <span class="text-xs text-slate-500">Command `.vv` unlock</span>
                         </div>
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="toggle-viewOnce" onchange="toggleFeature('viewOnce', this.checked)" class="sr-only peer">
@@ -202,40 +256,6 @@
                 </div>
             </div>
 
-            <!-- Dashboard Data Vault Grids -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                
-                <!-- Left Column: Anti-Delete Log Vault -->
-                <div class="glass-panel p-6 rounded-2xl border border-white/10 flex flex-col h-[500px]">
-                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-white/5">
-                        <h3 class="text-base font-bold text-white flex items-center">
-                            <i class="fa-solid fa-box-archive text-brand-500 mr-2"></i> Anti-Delete Vault Logs
-                        </h3>
-                        <span id="antidelete-count" class="text-xs bg-brand-500/10 text-brand-500 px-2.5 py-0.5 rounded-full font-semibold border border-brand-500/20">0 Captured</span>
-                    </div>
-                    
-                    <div id="antidelete-vault-list" class="flex-1 overflow-y-auto space-y-3 pr-1">
-                        <!-- Loaded dynamically via JS -->
-                        <div class="text-center py-12 text-slate-500 text-xs">Awaiting revoked messages...</div>
-                    </div>
-                </div>
-
-                <!-- Right Column: View-Once Media Vault -->
-                <div class="glass-panel p-6 rounded-2xl border border-white/10 flex flex-col h-[500px]">
-                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-white/5">
-                        <h3 class="text-base font-bold text-white flex items-center">
-                            <i class="fa-solid fa-photo-film text-brand-500 mr-2"></i> Decrypted View-Once Media
-                        </h3>
-                        <span id="viewonce-count" class="text-xs bg-brand-500/10 text-brand-500 px-2.5 py-0.5 rounded-full font-semibold border border-brand-500/20">0 Bypassed</span>
-                    </div>
-
-                    <div id="viewonce-vault-list" class="flex-1 overflow-y-auto space-y-3 pr-1">
-                        <!-- Loaded dynamically via JS -->
-                        <div class="text-center py-12 text-slate-500 text-xs">Awaiting view-once media captures...</div>
-                    </div>
-                </div>
-
-            </div>
         </div>
 
     </main>
@@ -250,13 +270,97 @@
     <!-- Client Script -->
     <script>
         let currentKey = localStorage.getItem('oomly_license_key') || '';
+        let activeReferenceId = null;
+        let pollInterval = null;
 
         document.addEventListener('DOMContentLoaded', () => {
             if (currentKey) {
-                document.getElementById('license-key-input').value = currentKey;
                 initDashboard();
             }
         });
+
+        function switchTab(tab) {
+            const payPane = document.getElementById('pane-pay');
+            const loginPane = document.getElementById('pane-login');
+            const payBtn = document.getElementById('tab-pay-btn');
+            const loginBtn = document.getElementById('tab-login-btn');
+
+            if (tab === 'pay') {
+                payPane.classList.remove('hidden');
+                loginPane.classList.add('hidden');
+                payBtn.className = "flex-1 py-2.5 text-xs font-bold rounded-lg bg-brand-500 text-white shadow transition-all";
+                loginBtn.className = "flex-1 py-2.5 text-xs font-bold rounded-lg text-slate-400 hover:text-white transition-all";
+            } else {
+                payPane.classList.add('hidden');
+                loginPane.classList.remove('hidden');
+                loginBtn.className = "flex-1 py-2.5 text-xs font-bold rounded-lg bg-brand-500 text-white shadow transition-all";
+                payBtn.className = "flex-1 py-2.5 text-xs font-bold rounded-lg text-slate-400 hover:text-white transition-all";
+            }
+        }
+
+        async function handleMoMoPay(e) {
+            e.preventDefault();
+            const phone = document.getElementById('momo-phone-input').value.trim();
+            const statusBox = document.getElementById('momo-status-box');
+            const statusText = document.getElementById('momo-status-text');
+            const submitBtn = document.getElementById('pay-submit-btn');
+
+            if (!phone) return;
+
+            submitBtn.disabled = true;
+            statusBox.classList.remove('hidden');
+            statusText.innerText = "Sending MTN MoMo payment prompt to phone...";
+
+            try {
+                const res = await fetch('/api/momo/pay', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    activeReferenceId = data.referenceId;
+                    statusText.innerText = "Prompt sent! Enter PIN on your phone to complete...";
+                    
+                    if (pollInterval) clearInterval(pollInterval);
+                    pollInterval = setInterval(checkMoMoPaymentStatus, 4000);
+                } else {
+                    throw new Error(data.error || 'Payment request failed');
+                }
+            } catch (err) {
+                statusText.innerText = `Error: ${err.message}`;
+                submitBtn.disabled = false;
+            }
+        }
+
+        async function checkMoMoPaymentStatus() {
+            if (!activeReferenceId) return;
+
+            try {
+                const res = await fetch(`/api/momo/verify/${activeReferenceId}`);
+                const data = await res.json();
+
+                if (data.success && data.paid) {
+                    clearInterval(pollInterval);
+                    document.getElementById('momo-status-text').innerText = "✅ Payment Successful! License Generated.";
+                    document.getElementById('generated-key-container').classList.remove('hidden');
+                    document.getElementById('display-generated-key').innerText = data.licenseKey;
+                    
+                    currentKey = data.licenseKey;
+                    localStorage.setItem('oomly_license_key', currentKey);
+                } else if (data.status === 'FAILED') {
+                    clearInterval(pollInterval);
+                    document.getElementById('momo-status-text').innerText = "❌ Payment Failed or Cancelled.";
+                }
+            } catch (err) {
+                console.error("Verification poll error", err);
+            }
+        }
+
+        function useGeneratedKey() {
+            initDashboard();
+        }
 
         async function handleLogin(e) {
             e.preventDefault();
@@ -273,7 +377,6 @@
             errBox.classList.add('hidden');
 
             try {
-                // Verify license & settings
                 const res = await fetch('/api/settings', {
                     headers: { 'x-admin-key': currentKey }
                 });
@@ -284,14 +387,9 @@
                     document.getElementById('dashboard-section').classList.remove('hidden');
                     document.getElementById('logout-btn').classList.remove('hidden');
 
-                    // Set toggle states
                     document.getElementById('toggle-antiDelete').checked = data.settings.antiDelete;
                     document.getElementById('toggle-viewOnce').checked = data.settings.viewOnce;
                     document.getElementById('toggle-autoStatus').checked = data.settings.autoStatus;
-
-                    // Start polling vaults
-                    pollVaults();
-                    setInterval(pollVaults, 3000);
                 } else {
                     throw new Error(data.error || 'Authentication failed');
                 }
@@ -353,77 +451,9 @@
             }
         }
 
-        async function pollVaults() {
-            if (!currentKey) return;
-
-            // Fetch Anti-Delete Vault
-            try {
-                const res = await fetch('/api/vault', { headers: { 'x-admin-key': currentKey } });
-                const data = await res.json();
-                if (data.success) renderAntiDelete(data.vault);
-            } catch(e){}
-
-            // Fetch View-Once Vault
-            try {
-                const res = await fetch('/api/viewonce-vault', { headers: { 'x-admin-key': currentKey } });
-                const data = await res.json();
-                if (data.success) renderViewOnce(data.vault);
-            } catch(e){}
-        }
-
-        function renderAntiDelete(items) {
-            const container = document.getElementById('antidelete-vault-list');
-            document.getElementById('antidelete-count').innerText = `${items.length} Captured`;
-
-            if (!items.length) {
-                container.innerHTML = `<div class="text-center py-12 text-slate-500 text-xs">No deleted messages intercepted yet.</div>`;
-                return;
-            }
-
-            container.innerHTML = items.map(item => `
-                <div class="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-1">
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="font-bold text-brand-500">+${item.sender}</span>
-                        <span class="text-slate-500 font-mono text-[10px]">${item.timestamp}</span>
-                    </div>
-                    <p class="text-xs text-slate-200 bg-slate-950 p-2.5 rounded-lg border border-white/5 font-sans">${escapeHtml(item.text)}</p>
-                </div>
-            `).join('');
-        }
-
-        function renderViewOnce(items) {
-            const container = document.getElementById('viewonce-vault-list');
-            document.getElementById('viewonce-count').innerText = `${items.length} Bypassed`;
-
-            if (!items.length) {
-                container.innerHTML = `<div class="text-center py-12 text-slate-500 text-xs">No view-once media captured yet.</div>`;
-                return;
-            }
-
-            container.innerHTML = items.map(item => `
-                <div class="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 space-y-2">
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="font-bold text-brand-500">+${item.sender}</span>
-                        <span class="text-slate-500 font-mono text-[10px]">${item.timestamp}</span>
-                    </div>
-                    <div class="rounded-lg overflow-hidden border border-white/5 bg-slate-950 p-1">
-                        ${item.type.includes('MP4') ? 
-                            `<video src="${item.url}" controls class="w-full max-h-48 rounded object-cover"></video>` :
-                            `<img src="${item.url}" class="w-full max-h-48 rounded object-cover" alt="Media Vault">`
-                        }
-                    </div>
-                    ${item.caption ? `<p class="text-xs text-slate-400 italic font-sans">"${escapeHtml(item.caption)}"</p>` : ''}
-                </div>
-            `).join('');
-        }
-
         function logout() {
             localStorage.removeItem('oomly_license_key');
             location.reload();
-        }
-
-        function escapeHtml(str) {
-            return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
         }
     </script>
 </body>
