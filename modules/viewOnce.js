@@ -1,106 +1,131 @@
 /**
  * Oomly Technologies - Enterprise View-Once Auto-Mirror Module
- * Silently intercepts view-once media and permanently mirrors it to the owner's private DM.
+ * Unpacks WhatsApp ViewOnce wrappers and mirrors permanent media to the owner DM.
  */
 
 const { getSettings } = require('./settings');
 const pino = require('pino');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 
-/**
- * Normalizes JIDs to clean phone numbers
- */
 function cleanSenderId(jidOrParticipant) {
     if (!jidOrParticipant) return "Unknown";
     return jidOrParticipant.split('@')[0].split(':')[0];
 }
 
 /**
- * Deep recursive search helper to find imageMessage or videoMessage inside nested wrappers
+ * Extracts and unpacks view-once structures to reveal inner media payload
  */
-function extractMediaObject(obj) {
-    if (!obj || typeof obj !== 'object') return null;
-    if (obj.imageMessage) return { type: 'imageMessage', media: obj.imageMessage };
-    if (obj.videoMessage) return { type: 'videoMessage', media: obj.videoMessage };
+function extractViewOnceContent(rawMsg) {
+    if (!rawMsg || !rawMsg.message) return null;
 
-    for (const key of Object.keys(obj)) {
-        if (typeof obj[key] === 'object' && obj[key] !== null) {
-            const found = extractMediaObject(obj[key]);
-            if (found) return found;
-        }
+    let msg = rawMsg.message;
+
+    // Un-wrap protocol viewOnce wrappers if present
+    if (msg.viewOnceMessage) {
+        msg = msg.viewOnceMessage.message;
+    } else if (msg.viewOnceMessageV2) {
+        msg = msg.viewOnceMessageV2.message;
+    } else if (msg.viewOnceMessageV2Extension) {
+        msg = msg.viewOnceMessageV2Extension.message;
     }
+
+    if (!msg) return null;
+
+    if (msg.imageMessage) {
+        return { type: 'imageMessage', media: msg.imageMessage, innerMessage: { imageMessage: msg.imageMessage } };
+    }
+    if (msg.videoMessage) {
+        return { type: 'videoMessage', media: msg.videoMessage, innerMessage: { videoMessage: msg.videoMessage } };
+    }
+    if (msg.audioMessage) {
+        return { type: 'audioMessage', media: msg.audioMessage, innerMessage: { audioMessage: msg.audioMessage } };
+    }
+
     return null;
 }
 
-/**
- * Main View-Once processor
- */
 async function handleViewOnce(sock, msg) {
-    // 1. Check if view-once feature is toggled on in settings
     if (!getSettings().viewOnce) return;
     if (!msg || !msg.message) return;
 
-    // 2. Locate media payload and verify view-once flag
-    const mediaResult = extractMediaObject(msg.message);
-    const rawString = JSON.stringify(msg.message);
-    const isViewOnceFlag = rawString.includes('viewOnce') || rawString.includes('viewOnceMessageV2');
+    // Check if message is a view-once type
+    const isViewOnce = Boolean(
+        msg.message.viewOnceMessage || 
+        msg.message.viewOnceMessageV2 || 
+        msg.message.viewOnceMessageV2Extension ||
+        msg.message.imageMessage?.viewOnce ||
+        msg.message.videoMessage?.viewOnce ||
+        msg.message.audioMessage?.viewOnce
+    );
 
-    if (mediaResult && isViewOnceFlag) {
-        try {
-            const messageId = msg.key.id;
-            const remoteJid = msg.key.remoteJid;
-            const senderJid = msg.key.participant || remoteJid;
-            const senderPhone = cleanSenderId(senderJid);
-            const isGroup = remoteJid.endsWith('@g.us');
+    if (!isViewOnce) return;
 
-            // Reconstruct payload for Baileys media downloader
-            const reconstructedMsg = {
-                key: msg.key,
-                message: {
-                    [mediaResult.type]: mediaResult.media
-                }
-            };
+    const extracted = extractViewOnceContent(msg);
+    if (!extracted) {
+        console.log("📸 [VIEW-ONCE]: Detected view-once flag, but could not extract media payload.");
+        return;
+    }
 
-            // Download media buffer into RAM
-            const buffer = await downloadMediaMessage(
-                reconstructedMsg,
-                'buffer',
-                {},
-                { 
-                    logger: pino({ level: 'silent' }), 
-                    reuploadRequest: sock.updateMediaMessage 
-                }
-            );
+    try {
+        const remoteJid = msg.key.remoteJid;
+        const senderJid = msg.key.participant || remoteJid;
+        const senderPhone = cleanSenderId(senderJid);
+        const isGroup = remoteJid.endsWith('@g.us');
 
-            // Derive owner JID (Bot's own personal chat / Message Yourself)
-            const ownerJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : null;
-            if (!ownerJid) {
-                console.error("❌ [VIEW-ONCE ERROR]: Could not resolve owner JID.");
-                return;
+        // Reconstruct precise download message wrapper
+        const downloadTarget = {
+            key: msg.key,
+            message: extracted.innerMessage
+        };
+
+        // Download raw media buffer
+        const buffer = await downloadMediaMessage(
+            downloadTarget,
+            'buffer',
+            {},
+            { 
+                logger: pino({ level: 'silent' }), 
+                reuploadRequest: sock.updateMediaMessage 
             }
+        );
 
-            const originalCaption = mediaResult.media.caption || "";
-            const mediaTypeName = mediaResult.type === 'imageMessage' ? 'Photo' : 'Video';
-
-            const captionText = 
-                `🔓 *VIEW-ONCE MIRROR*\n\n` +
-                `📍 *Source:* ${isGroup ? 'Group Chat' : 'Direct Message'}\n` +
-                `👤 *Sender:* @${senderPhone}\n` +
-                `📦 *Type:* ${mediaTypeName}\n` +
-                `${originalCaption ? `📝 *Caption:* "${originalCaption}"` : ''}`;
-
-            // Automatically send the unlocked permanent media directly to your private owner DM
-            await sock.sendMessage(ownerJid, {
-                [mediaResult.type === 'imageMessage' ? 'image' : 'video']: buffer,
-                caption: captionText,
-                mentions: [senderJid]
-            });
-
-            console.log(`📸 [VIEW-ONCE SUCCESS]: Intercepted & mirrored ${mediaTypeName} from ${senderPhone}`);
-
-        } catch (err) {
-            console.error("❌ [VIEW-ONCE ERROR]: Failed to download/mirror media:", err.message);
+        // Resolve owner JID (Bot Owner DM / Message Yourself)
+        const ownerJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : null;
+        if (!ownerJid) {
+            console.error("❌ [VIEW-ONCE ERROR]: Missing owner JID.");
+            return;
         }
+
+        const originalCaption = extracted.media.caption || "";
+        const mediaTypeLabel = extracted.type === 'imageMessage' ? 'Photo' : extracted.type === 'videoMessage' ? 'Video' : 'Audio';
+
+        const captionText = 
+            `🔓 *VIEW-ONCE MIRROR*\n\n` +
+            `📍 *Source:* ${isGroup ? 'Group Chat' : 'Direct Message'}\n` +
+            `👤 *Sender:* @${senderPhone}\n` +
+            `📦 *Type:* ${mediaTypeLabel}\n` +
+            `${originalCaption ? `📝 *Caption:* "${originalCaption}"` : ''}`;
+
+        // Forward unlocked media directly to owner DM
+        const mediaPayload = {};
+        if (extracted.type === 'imageMessage') mediaPayload.image = buffer;
+        else if (extracted.type === 'videoMessage') mediaPayload.video = buffer;
+        else if (extracted.type === 'audioMessage') {
+            mediaPayload.audio = buffer;
+            mediaPayload.mimetype = 'audio/mp4';
+            mediaPayload.ptt = true;
+        }
+
+        await sock.sendMessage(ownerJid, {
+            ...mediaPayload,
+            caption: captionText,
+            mentions: [senderJid]
+        });
+
+        console.log(`📸 [VIEW-ONCE SUCCESS]: Intercepted & mirrored ${mediaTypeLabel} from ${senderPhone}`);
+
+    } catch (err) {
+        console.error("❌ [VIEW-ONCE ERROR]: Failed to download/forward media:", err.message);
     }
 }
 
