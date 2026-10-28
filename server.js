@@ -208,7 +208,25 @@ async function connectToWhatsApp(userId, req = null) {
     });
 
     activeSockets[userId] = sock;
-    sock.ev.on('creds.update', saveCreds);
+    // Listen to creds.update and save them to your auth folder
+// Ensure creds.update is handled cleanly
+sock.ev.on('creds.update', saveCreds);
+
+// Only request pairing code if session is NOT registered AND phoneNumber is defined
+const targetPhoneNumber = process.env.BOT_PHONE_NUMBER || global.phoneNumber || null;
+
+if (!sock.authState.creds.registered) {
+    if (targetPhoneNumber) {
+        try {
+            const pairingCode = await sock.requestPairingCode(targetPhoneNumber.replace(/[^0-9]/g, ''));
+            console.log(`🔑 [PAIRING CODE]: ${pairingCode}`);
+        } catch (err) {
+            console.error("❌ Failed to request pairing code:", err.message);
+        }
+    } else {
+        console.log("ℹ️ Waiting for phone number via dashboard/API to generate pairing code...");
+    }
+}
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
