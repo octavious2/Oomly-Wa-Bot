@@ -1,11 +1,11 @@
 /**
  * Oomly Technologies - Enterprise View-Once Auto-Mirror Module
- * Unpacks WhatsApp ViewOnce wrappers and mirrors permanent media to the owner DM.
+ * Uses downloadContentFromMessage to stream and decrypt View-Once media directly.
  */
 
 const { getSettings } = require('./settings');
 const pino = require('pino');
-const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
 function cleanSenderId(jidOrParticipant) {
     if (!jidOrParticipant) return "Unknown";
@@ -13,56 +13,68 @@ function cleanSenderId(jidOrParticipant) {
 }
 
 /**
- * Extracts and unpacks view-once structures to reveal inner media payload
+ * Unwraps nested View-Once containers (viewOnceMessage, viewOnceMessageV2, ephemeralMessage)
  */
-function extractViewOnceContent(rawMsg) {
-    if (!rawMsg || !rawMsg.message) return null;
+function unwrapMessage(msgObj) {
+    if (!msgObj) return null;
+    let m = msgObj;
 
-    let msg = rawMsg.message;
+    // Handle ephemeral/disappearing wrapper
+    if (m.ephemeralMessage) m = m.ephemeralMessage.message;
+    
+    // Handle View-Once wrappers
+    if (m.viewOnceMessage) m = m.viewOnceMessage.message;
+    else if (m.viewOnceMessageV2) m = m.viewOnceMessageV2.message;
+    else if (m.viewOnceMessageV2Extension) m = m.viewOnceMessageV2Extension.message;
 
-    // Un-wrap protocol viewOnce wrappers if present
-    if (msg.viewOnceMessage) {
-        msg = msg.viewOnceMessage.message;
-    } else if (msg.viewOnceMessageV2) {
-        msg = msg.viewOnceMessageV2.message;
-    } else if (msg.viewOnceMessageV2Extension) {
-        msg = msg.viewOnceMessageV2Extension.message;
+    return m;
+}
+
+/**
+ * Identifies media payload inside the unwrapped message
+ */
+function extractMediaPayload(messageContainer) {
+    if (!messageContainer) return null;
+
+    if (messageContainer.imageMessage) {
+        return { type: 'image', media: messageContainer.imageMessage, key: 'imageMessage' };
     }
-
-    if (!msg) return null;
-
-    if (msg.imageMessage) {
-        return { type: 'imageMessage', media: msg.imageMessage, innerMessage: { imageMessage: msg.imageMessage } };
+    if (messageContainer.videoMessage) {
+        return { type: 'video', media: messageContainer.videoMessage, key: 'videoMessage' };
     }
-    if (msg.videoMessage) {
-        return { type: 'videoMessage', media: msg.videoMessage, innerMessage: { videoMessage: msg.videoMessage } };
-    }
-    if (msg.audioMessage) {
-        return { type: 'audioMessage', media: msg.audioMessage, innerMessage: { audioMessage: msg.audioMessage } };
+    if (messageContainer.audioMessage) {
+        return { type: 'audio', media: messageContainer.audioMessage, key: 'audioMessage' };
     }
 
     return null;
 }
 
 async function handleViewOnce(sock, msg) {
-    if (!getSettings().viewOnce) return;
+    // 1. Verify feature setting state
+    const settings = getSettings();
+    if (!settings.viewOnce) {
+        return;
+    }
+
     if (!msg || !msg.message) return;
 
-    // Check if message is a view-once type
-    const isViewOnce = Boolean(
-        msg.message.viewOnceMessage || 
-        msg.message.viewOnceMessageV2 || 
-        msg.message.viewOnceMessageV2Extension ||
-        msg.message.imageMessage?.viewOnce ||
-        msg.message.videoMessage?.viewOnce ||
-        msg.message.audioMessage?.viewOnce
-    );
+    // 2. Inspect for View-Once markers
+    const rawStr = JSON.stringify(msg.message);
+    const isViewOnce = rawStr.includes('viewOnce') || 
+                       Boolean(msg.message.imageMessage?.viewOnce) || 
+                       Boolean(msg.message.videoMessage?.viewOnce) ||
+                       Boolean(msg.message.audioMessage?.viewOnce);
 
     if (!isViewOnce) return;
 
-    const extracted = extractViewOnceContent(msg);
-    if (!extracted) {
-        console.log("📸 [VIEW-ONCE]: Detected view-once flag, but could not extract media payload.");
+    console.log("📸 [VIEW-ONCE DETECTED]: Intercepting View-Once message payload...");
+
+    // 3. Unwrap message layers and locate media
+    const unwrapped = unwrapMessage(msg.message);
+    const mediaItem = extractMediaPayload(unwrapped);
+
+    if (!mediaItem) {
+        console.log("❌ [VIEW-ONCE ERROR]: View-Once flag present, but no supported media payload found.");
         return;
     }
 
@@ -72,60 +84,55 @@ async function handleViewOnce(sock, msg) {
         const senderPhone = cleanSenderId(senderJid);
         const isGroup = remoteJid.endsWith('@g.us');
 
-        // Reconstruct precise download message wrapper
-        const downloadTarget = {
-            key: msg.key,
-            message: extracted.innerMessage
-        };
+        // 4. Download content stream using Baileys low-level decryptor
+        const stream = await downloadContentFromMessage(mediaItem.media, mediaItem.type);
+        let buffer = Buffer.from([]);
+        for await (const chunk of stream) {
+            buffer = Buffer.concat([buffer, chunk]);
+        }
 
-        // Download raw media buffer
-        const buffer = await downloadMediaMessage(
-            downloadTarget,
-            'buffer',
-            {},
-            { 
-                logger: pino({ level: 'silent' }), 
-                reuploadRequest: sock.updateMediaMessage 
-            }
-        );
-
-        // Resolve owner JID (Bot Owner DM / Message Yourself)
-        const ownerJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : null;
-        if (!ownerJid) {
-            console.error("❌ [VIEW-ONCE ERROR]: Missing owner JID.");
+        if (!buffer || buffer.length === 0) {
+            console.error("❌ [VIEW-ONCE ERROR]: Decryption produced an empty buffer.");
             return;
         }
 
-        const originalCaption = extracted.media.caption || "";
-        const mediaTypeLabel = extracted.type === 'imageMessage' ? 'Photo' : extracted.type === 'videoMessage' ? 'Video' : 'Audio';
+        // 5. Determine owner destination JID
+        const ownerJid = sock.user?.id ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : null;
+        if (!ownerJid) {
+            console.error("❌ [VIEW-ONCE ERROR]: Bot owner JID unavailable.");
+            return;
+        }
 
-        const captionText = 
+        const caption = mediaItem.media.caption || "";
+        const typeLabel = mediaItem.type.toUpperCase();
+
+        const alertText = 
             `🔓 *VIEW-ONCE MIRROR*\n\n` +
             `📍 *Source:* ${isGroup ? 'Group Chat' : 'Direct Message'}\n` +
             `👤 *Sender:* @${senderPhone}\n` +
-            `📦 *Type:* ${mediaTypeLabel}\n` +
-            `${originalCaption ? `📝 *Caption:* "${originalCaption}"` : ''}`;
+            `📦 *Type:* ${typeLabel}\n` +
+            `${caption ? `📝 *Caption:* "${caption}"` : ''}`;
 
-        // Forward unlocked media directly to owner DM
-        const mediaPayload = {};
-        if (extracted.type === 'imageMessage') mediaPayload.image = buffer;
-        else if (extracted.type === 'videoMessage') mediaPayload.video = buffer;
-        else if (extracted.type === 'audioMessage') {
-            mediaPayload.audio = buffer;
-            mediaPayload.mimetype = 'audio/mp4';
-            mediaPayload.ptt = true;
+        // 6. Build payload and forward permanent copy to Owner DM
+        const outPayload = {};
+        if (mediaItem.type === 'image') outPayload.image = buffer;
+        else if (mediaItem.type === 'video') outPayload.video = buffer;
+        else if (mediaItem.type === 'audio') {
+            outPayload.audio = buffer;
+            outPayload.mimetype = 'audio/mp4';
+            outPayload.ptt = true;
         }
 
         await sock.sendMessage(ownerJid, {
-            ...mediaPayload,
-            caption: captionText,
+            ...outPayload,
+            caption: alertText,
             mentions: [senderJid]
         });
 
-        console.log(`📸 [VIEW-ONCE SUCCESS]: Intercepted & mirrored ${mediaTypeLabel} from ${senderPhone}`);
+        console.log(`✅ [VIEW-ONCE SUCCESS]: Mirrored ${typeLabel} (${buffer.length} bytes) to Owner DM.`);
 
     } catch (err) {
-        console.error("❌ [VIEW-ONCE ERROR]: Failed to download/forward media:", err.message);
+        console.error("❌ [VIEW-ONCE EXCEPTION]:", err.message);
     }
 }
 
