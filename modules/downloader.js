@@ -1,35 +1,55 @@
 /**
- * Oomly Technologies - Cloud Media Downloader Engine (Client-Rotation Anti-Bot)
+ * Oomly Technologies - Universal Multi-Platform Media Engine
+ * Supports: YouTube, Instagram, Facebook, TikTok, X, Spotify, SoundCloud, etc.
  */
 
-const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 const pino = require('pino');
 
 const logger = pino({ level: 'info' });
 const TEMP_DIR = path.join(__dirname, '../temp');
-const LOCAL_BIN_DIR = path.join(__dirname, '../bin');
 
 if (!fs.existsSync(TEMP_DIR)) {
     fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-function runCommand(command) {
-    return new Promise((resolve, reject) => {
-        const env = { 
-            ...process.env, 
-            PATH: `${LOCAL_BIN_DIR}:${process.env.PATH || ''}:/usr/local/bin:/usr/bin` 
-        };
+/**
+ * Universal resolution fallback layer using cloud-resilient media APIs
+ */
+async function resolveUniversalMedia(targetUrl, requestedFormat) {
+    const encoded = encodeURIComponent(targetUrl);
+    
+    // Primary universal API route (handles Insta Reels, FB, TikTok, YT, Twitter)
+    try {
+        const endpoint = requestedFormat === 'mp3' 
+            ? `https://apis.davidcyriltech.my.id/download/audio?url=${encoded}`
+            : `https://apis.davidcyriltech.my.id/download/video?url=${encoded}`;
 
-        exec(command, { env, maxBuffer: 1024 * 1024 * 100 }, (error, stdout, stderr) => {
-            if (error) {
-                logger.error({ stderr }, `❌ [SHELL ERROR]: ${error.message}`);
-                return reject(error);
-            }
-            resolve(stdout ? stdout.trim() : stderr);
-        });
-    });
+        const res = await axios.get(endpoint, { timeout: 15000 });
+        if (res.data && res.data.success && (res.data.result.download_url || res.data.result.url)) {
+            return res.data.result.download_url || res.data.result.url;
+        }
+    } catch (e) {
+        logger.warn(`Primary resolver skipped for ${targetUrl}, attempting secondary stream API...`);
+    }
+
+    // Secondary fallback route (handles Spotify, YT, social video clips)
+    try {
+        const altEndpoint = requestedFormat === 'mp3'
+            ? `https://api.siputzx.my.id/api/d/ytmp3?url=${encoded}`
+            : `https://api.siputzx.my.id/api/d/ytmp4?url=${encoded}`;
+
+        const altRes = await axios.get(altEndpoint, { timeout: 15000 });
+        if (altRes.data && (altRes.data.data?.dl || altRes.data.data?.download)) {
+            return altRes.data.data.dl || altRes.data.data.download;
+        }
+    } catch (e) {
+        logger.error(`Secondary resolver failed: ${e.message}`);
+    }
+
+    throw new Error("Unable to extract media stream from provided URL.");
 }
 
 async function handleMediaDownloader(sock, msg) {
@@ -43,13 +63,17 @@ async function handleMediaDownloader(sock, msg) {
 
     const remoteJid = msg.key.remoteJid;
     
-    const isYtAudio = text.startsWith('.yta') || text.startsWith('.song');
-    const isYtVideo = text.startsWith('.ytv') || text.startsWith('.video');
-    const isSpotify = text.includes('open.spotify.com/track/');
-    const isRawYouTube = text.includes('youtube.com/watch') || text.includes('youtu.be/');
+    // Command prefixes or raw link triggers
+    const isExplicitAudio = text.startsWith('.song') || text.startsWith('.yta') || text.startsWith('.mp3');
+    const isExplicitVideo = text.startsWith('.video') || text.startsWith('.ytv') || text.startsWith('.mp4');
 
-    if (!isYtAudio && !isYtVideo && !isSpotify && !isRawYouTube) return;
+    // Detect social links across major platforms
+    const supportedDomainRegex = /(youtube\.com|youtu\.be|instagram\.com|facebook\.com|fb\.watch|tiktok\.com|twitter\.com|x\.com|spotify\.com|soundcloud\.com)/i;
+    const hasMediaLink = supportedDomainRegex.test(text);
 
+    if (!isExplicitAudio && !isExplicitVideo && !hasMediaLink) return;
+
+    // Extract target URL from payload
     let targetUrl = text;
     if (text.includes(' ')) {
         const parts = text.split(' ');
@@ -58,34 +82,40 @@ async function handleMediaDownloader(sock, msg) {
 
     if (!targetUrl || !targetUrl.startsWith('http')) return;
 
-    console.log(`🎯 [DOWNLOADER TARGET]: Resolved URL -> ${targetUrl}`);
+    console.log(`🎯 [UNIVERSAL DOWNLOADER TARGET]: ${targetUrl}`);
 
     const timestamp = Date.now();
-    let format = (isYtVideo) ? 'mp4' : 'mp3';
-    const outputFilename = `media_${timestamp}.${format}`;
-    const outputPath = path.join(TEMP_DIR, outputFilename);
-
-    const ytDlpBin = fs.existsSync(path.join(LOCAL_BIN_DIR, 'yt-dlp')) ? path.join(LOCAL_BIN_DIR, 'yt-dlp') : 'yt-dlp';
+    // Default to MP3 for audio platforms, MP4 for video clips unless specified
+    let isAudioOnly = isExplicitAudio || targetUrl.includes('spotify.com') || targetUrl.includes('soundcloud.com');
+    let format = isAudioOnly ? 'mp3' : 'mp4';
+    
+    const outputPath = path.join(TEMP_DIR, `media_${timestamp}.${format}`);
 
     try {
-        await sock.sendMessage(remoteJid, { text: "⏳ *Oomly Engine:* Rotating client and processing download..." }, { quoted: msg });
+        await sock.sendMessage(remoteJid, { text: "⏳ *Oomly Engine:* Extracting media from platform..." }, { quoted: msg });
 
-        let cmd = '';
-        // Using player_client=mweb,ios to bypass server-side IP blocks
-        if (format === 'mp3' || isSpotify) {
-            cmd = `${ytDlpBin} --js-runtimes node --extractor-args "youtube:player_client=mweb,ios" -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${targetUrl}"`;
-        } else {
-            cmd = `${ytDlpBin} --js-runtimes node --extractor-args "youtube:player_client=mweb,ios" -f "bestvideo[ext=mp4][filesize<40M]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${targetUrl}"`;
-        }
+        const directDownloadUrl = await resolveUniversalMedia(targetUrl, format);
 
-        console.log(`⏳ Executing command: ${cmd}`);
-        await runCommand(cmd);
+        console.log(`📥 Streaming media to temporary buffer...`);
+        const writer = fs.createWriteStream(outputPath);
+        const streamResponse = await axios({
+            url: directDownloadUrl,
+            method: 'GET',
+            responseType: 'stream'
+        });
+
+        streamResponse.data.pipe(writer);
+
+        await new Promise((resolve, reject) => {
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+        });
 
         if (!fs.existsSync(outputPath)) {
-            throw new Error("Target file was not generated by yt-dlp.");
+            throw new Error("Failed to write stream to local disk buffer.");
         }
 
-        if (format === 'mp3' || isSpotify) {
+        if (format === 'mp3') {
             await sock.sendMessage(remoteJid, {
                 audio: { url: outputPath },
                 mimetype: 'audio/mp4',
@@ -94,12 +124,12 @@ async function handleMediaDownloader(sock, msg) {
         } else {
             await sock.sendMessage(remoteJid, {
                 video: { url: outputPath },
-                caption: "🎬 *Downloaded via Oomly Media Engine*"
+                caption: "🎬 *Downloaded via Oomly Universal Media Engine*"
             }, { quoted: msg });
         }
 
     } catch (err) {
-        console.error("❌ [DOWNLOADER EXCEPTION]:", err.message);
+        console.error("❌ [UNIVERSAL DOWNLOADER ERROR]:", err.message);
         await sock.sendMessage(remoteJid, { text: `❌ *Download Failed:* ${err.message}` }, { quoted: msg });
     } finally {
         if (fs.existsSync(outputPath)) {
