@@ -7,9 +7,21 @@
     "start": "node server.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.13",
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.24",
+    "axios": "^1.21.0",
     "dotenv": "^18.0.9",
     "express": "^4.19.2",
-    "pino": "^9.0.0"
+    "fluent-ffmpeg": "^2.1.3",
+    "pino": "^9.14.0",
+    "sharp": "^0.35.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14",
+    "pino-pretty": "^13.2.0"
+  },
+  "allowScripts": {
+    "protobufjs@7.6.6": true,
+    "@whiskeysockets/baileys@6.7.24": true
   }
 }
