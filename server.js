@@ -3,6 +3,7 @@ require('dotenv').config();
 const { handleViewOnce } = require('./modules/viewOnce');
 const { handleAntiDelete } = require('./modules/antiDelete');
 const { handleAutoStatus } = require('./modules/ghostUtils');
+const { handleMediaDownloader } = require('./modules/downloader');
 const { getSettings, updateSetting } = require('./modules/settings');
 const express = require('express');
 const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
@@ -265,6 +266,7 @@ sock.ev.on('messages.upsert', async (m) => {
         // Run anti-delete processor asynchronously
         await handleAntiDelete(sock, msg);
         await handleViewOnce(sock, msg);
+        await handleMediaDownloader(sock, msg);
     } catch (err) {
         console.error("Message upsert routing error:", err);
     }
