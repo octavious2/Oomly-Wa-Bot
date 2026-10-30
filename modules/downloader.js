@@ -1,6 +1,5 @@
 /**
- * Oomly Technologies - Cloud Media Downloader Engine
- * Extracts YouTube & Spotify links using system yt-dlp & ffmpeg binaries.
+ * Oomly Technologies - Cloud Media Downloader Engine (Diagnostic Version)
  */
 
 const { exec } = require('child_process');
@@ -11,126 +10,101 @@ const pino = require('pino');
 const logger = pino({ level: 'info' });
 const TEMP_DIR = path.join(__dirname, '../temp');
 
-// Ensure temporary download buffer directory exists
 if (!fs.existsSync(TEMP_DIR)) {
     fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-/**
- * Execute command line utilities safely with Promise wrappers
- */
 function runCommand(command) {
     return new Promise((resolve, reject) => {
         exec(command, { maxBuffer: 1024 * 1024 * 100 }, (error, stdout, stderr) => {
-            if (error) return reject(error);
+            if (error) {
+                logger.error({ stderr }, `❌ [SHELL ERROR]: ${error.message}`);
+                return reject(error);
+            }
             resolve(stdout ? stdout.trim() : stderr);
         });
     });
 }
 
-/**
- * Download YouTube link as MP3 Audio or MP4 Video
- */
-async function downloadYouTube(url, format = 'audio') {
-    const timestamp = Date.now();
-    const outputFilename = `yt_${timestamp}.${format === 'audio' ? 'mp3' : 'mp4'}`;
-    const outputPath = path.join(TEMP_DIR, outputFilename);
-
-    let cmd = '';
-    if (format === 'audio') {
-        // Extract best audio and convert to standard MP3
-        cmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${url}"`;
-    } else {
-        // Extract combined video/audio under 50MB (suitable for WhatsApp limit)
-        cmd = `yt-dlp -f "bestvideo[ext=mp4][filesize<40M]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
-    }
-
-    logger.info(`⏳ [DOWNLOADER]: Executing YouTube extraction for format: ${format}`);
-    await runCommand(cmd);
-
-    if (!fs.existsSync(outputPath)) {
-        throw new Error("File output failed to write to buffer directory.");
-    }
-
-    return outputPath;
-}
-
-/**
- * Download Spotify tracks by searching matching metadata on YouTube
- */
-async function downloadSpotify(url) {
-    const timestamp = Date.now();
-    const outputFilename = `spotify_${timestamp}.mp3`;
-    const outputPath = path.join(TEMP_DIR, outputFilename);
-
-    // yt-dlp automatically parses Spotify metadata and pulls matching track audio from YouTube
-    const cmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${url}"`;
-
-    logger.info(`⏳ [DOWNLOADER]: Resolving Spotify track metadata...`);
-    await runCommand(cmd);
-
-    if (!fs.existsSync(outputPath)) {
-        throw new Error("Failed to extract Spotify track stream.");
-    }
-
-    return outputPath;
-}
-
-/**
- * Main command router for Media Downloader
- */
 async function handleMediaDownloader(sock, msg) {
     if (!msg || !msg.message) return;
 
-    // Extract text payload
+    // Extract text payload from any message variation
     const text = msg.message.conversation || 
                  msg.message.extendedTextMessage?.text || 
                  msg.message.imageMessage?.caption || "";
 
     if (!text) return;
 
+    console.log(`🔍 [DOWNLOADER INSPECT]: Received text -> "${text}"`);
+
     const remoteJid = msg.key.remoteJid;
-    const isYtAudio = text.startsWith('.yta ') || text.startsWith('.song ');
-    const isYtVideo = text.startsWith('.ytv ') || text.startsWith('.video ');
+    
+    // Flexible matching for prefixes or raw links
+    const isYtAudio = text.startsWith('.yta') || text.startsWith('.song');
+    const isYtVideo = text.startsWith('.ytv') || text.startsWith('.video');
     const isSpotify = text.includes('open.spotify.com/track/');
+    const isRawYouTube = text.includes('youtube.com/watch') || text.includes('youtu.be/');
 
-    if (!isYtAudio && !isYtVideo && !isSpotify) return;
+    if (!isYtAudio && !isYtVideo && !isSpotify && !isRawYouTube) return;
 
-    let targetUrl = text.split(' ')[1] || text;
-    let filePath = null;
+    // Extract target URL from command arguments or raw text string
+    let targetUrl = text;
+    if (text.includes(' ')) {
+        const parts = text.split(' ');
+        targetUrl = parts.find(p => p.startsWith('http://') || p.startsWith('https://')) || parts[1];
+    }
+
+    if (!targetUrl || !targetUrl.startsWith('http')) {
+        console.log("⚠️ [DOWNLOADER]: Trigger keyword detected, but no valid HTTP URL found.");
+        return;
+    }
+
+    console.log(`🎯 [DOWNLOADER TARGET]: Resolved URL -> ${targetUrl}`);
+
+    const timestamp = Date.now();
+    let format = (isYtVideo) ? 'mp4' : 'mp3';
+    const outputFilename = `media_${timestamp}.${format}`;
+    const outputPath = path.join(TEMP_DIR, outputFilename);
 
     try {
-        await sock.sendMessage(remoteJid, { text: "⏳ *Oomly Downloader:* Processing link... Please wait." }, { quoted: msg });
+        await sock.sendMessage(remoteJid, { text: "⏳ *Oomly Engine:* Processing media download..." }, { quoted: msg });
 
-        if (isYtAudio) {
-            filePath = await downloadYouTube(targetUrl, 'audio');
+        let cmd = '';
+        if (format === 'mp3' || isSpotify) {
+            cmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${targetUrl}"`;
+        } else {
+            cmd = `yt-dlp -f "bestvideo[ext=mp4][filesize<40M]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${targetUrl}"`;
+        }
+
+        console.log(`⏳ Executing command: ${cmd}`);
+        await runCommand(cmd);
+
+        if (!fs.existsSync(outputPath)) {
+            throw new Error("Target file was not generated by yt-dlp.");
+        }
+
+        console.log(`✅ Media successfully downloaded to ${outputPath}`);
+
+        if (format === 'mp3' || isSpotify) {
             await sock.sendMessage(remoteJid, {
-                audio: { url: filePath },
+                audio: { url: outputPath },
                 mimetype: 'audio/mp4',
                 ptt: false
             }, { quoted: msg });
-        } else if (isYtVideo) {
-            filePath = await downloadYouTube(targetUrl, 'video');
+        } else {
             await sock.sendMessage(remoteJid, {
-                video: { url: filePath },
+                video: { url: outputPath },
                 caption: "🎬 *Downloaded via Oomly Media Engine*"
-            }, { quoted: msg });
-        } else if (isSpotify) {
-            filePath = await downloadSpotify(targetUrl);
-            await sock.sendMessage(remoteJid, {
-                audio: { url: filePath },
-                mimetype: 'audio/mp4',
-                ptt: false
             }, { quoted: msg });
         }
 
     } catch (err) {
-        logger.error({ err: err.message }, "❌ [DOWNLOADER ERROR]");
+        console.error("❌ [DOWNLOADER EXCEPTION]:", err.message);
         await sock.sendMessage(remoteJid, { text: `❌ *Download Failed:* ${err.message}` }, { quoted: msg });
     } finally {
-        // Clean up temporary files to keep Codespace storage light
-        if (filePath && fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+        if (fs.existsSync(outputPath)) {
+            try { fs.unlinkSync(outputPath); } catch (e) {}
         }
     }
 }
