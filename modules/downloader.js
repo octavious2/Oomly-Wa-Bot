@@ -1,5 +1,5 @@
 /**
- * Oomly Technologies - Cloud Media Downloader Engine (Anti-Bot Hardened)
+ * Oomly Technologies - Cloud Media Downloader Engine (Client-Rotation Anti-Bot)
  */
 
 const { exec } = require('child_process');
@@ -68,14 +68,14 @@ async function handleMediaDownloader(sock, msg) {
     const ytDlpBin = fs.existsSync(path.join(LOCAL_BIN_DIR, 'yt-dlp')) ? path.join(LOCAL_BIN_DIR, 'yt-dlp') : 'yt-dlp';
 
     try {
-        await sock.sendMessage(remoteJid, { text: "⏳ *Oomly Engine:* Bypassing restrictions & processing download..." }, { quoted: msg });
+        await sock.sendMessage(remoteJid, { text: "⏳ *Oomly Engine:* Rotating client and processing download..." }, { quoted: msg });
 
         let cmd = '';
-        // Added --js-runtimes node and --extractor-args to bypass YouTube datacenter blocks
+        // Using player_client=mweb,ios to bypass server-side IP blocks
         if (format === 'mp3' || isSpotify) {
-            cmd = `${ytDlpBin} --js-runtimes node --extractor-args "youtube:player_client=web" -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${targetUrl}"`;
+            cmd = `${ytDlpBin} --js-runtimes node --extractor-args "youtube:player_client=mweb,ios" -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${targetUrl}"`;
         } else {
-            cmd = `${ytDlpBin} --js-runtimes node --extractor-args "youtube:player_client=web" -f "bestvideo[ext=mp4][filesize<40M]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${targetUrl}"`;
+            cmd = `${ytDlpBin} --js-runtimes node --extractor-args "youtube:player_client=mweb,ios" -f "bestvideo[ext=mp4][filesize<40M]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${targetUrl}"`;
         }
 
         console.log(`⏳ Executing command: ${cmd}`);
