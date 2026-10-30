@@ -1,5 +1,5 @@
 /**
- * Oomly Technologies - Cloud Media Downloader Engine (Cross-Platform)
+ * Oomly Technologies - Cloud Media Downloader Engine (Anti-Bot Hardened)
  */
 
 const { exec } = require('child_process');
@@ -17,7 +17,6 @@ if (!fs.existsSync(TEMP_DIR)) {
 
 function runCommand(command) {
     return new Promise((resolve, reject) => {
-        // Prepend local bin directory to PATH so Render finds bin/yt-dlp
         const env = { 
             ...process.env, 
             PATH: `${LOCAL_BIN_DIR}:${process.env.PATH || ''}:/usr/local/bin:/usr/bin` 
@@ -66,17 +65,17 @@ async function handleMediaDownloader(sock, msg) {
     const outputFilename = `media_${timestamp}.${format}`;
     const outputPath = path.join(TEMP_DIR, outputFilename);
 
-    // Fallback binary lookup (tries ./bin/yt-dlp first, then system yt-dlp)
-    const ytDlpCmd = fs.existsSync(path.join(LOCAL_BIN_DIR, 'yt-dlp')) ? `${path.join(LOCAL_BIN_DIR, 'yt-dlp')}` : 'yt-dlp';
+    const ytDlpBin = fs.existsSync(path.join(LOCAL_BIN_DIR, 'yt-dlp')) ? path.join(LOCAL_BIN_DIR, 'yt-dlp') : 'yt-dlp';
 
     try {
-        await sock.sendMessage(remoteJid, { text: "⏳ *Oomly Engine:* Processing media download..." }, { quoted: msg });
+        await sock.sendMessage(remoteJid, { text: "⏳ *Oomly Engine:* Bypassing restrictions & processing download..." }, { quoted: msg });
 
         let cmd = '';
+        // Added --js-runtimes node and --extractor-args to bypass YouTube datacenter blocks
         if (format === 'mp3' || isSpotify) {
-            cmd = `${ytDlpCmd} -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${targetUrl}"`;
+            cmd = `${ytDlpBin} --js-runtimes node --extractor-args "youtube:player_client=web" -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${targetUrl}"`;
         } else {
-            cmd = `${ytDlpCmd} -f "bestvideo[ext=mp4][filesize<40M]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${targetUrl}"`;
+            cmd = `${ytDlpBin} --js-runtimes node --extractor-args "youtube:player_client=web" -f "bestvideo[ext=mp4][filesize<40M]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${targetUrl}"`;
         }
 
         console.log(`⏳ Executing command: ${cmd}`);
