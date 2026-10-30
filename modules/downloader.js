@@ -1,5 +1,5 @@
 /**
- * Oomly Technologies - Cloud Media Downloader Engine
+ * Oomly Technologies - Cloud Media Downloader Engine (Cross-Platform)
  */
 
 const { exec } = require('child_process');
@@ -9,6 +9,7 @@ const pino = require('pino');
 
 const logger = pino({ level: 'info' });
 const TEMP_DIR = path.join(__dirname, '../temp');
+const LOCAL_BIN_DIR = path.join(__dirname, '../bin');
 
 if (!fs.existsSync(TEMP_DIR)) {
     fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -16,8 +17,13 @@ if (!fs.existsSync(TEMP_DIR)) {
 
 function runCommand(command) {
     return new Promise((resolve, reject) => {
-        // Explicitly use bash to ensure /usr/local/bin/yt-dlp is found
-        exec(command, { shell: '/bin/bash', maxBuffer: 1024 * 1024 * 100 }, (error, stdout, stderr) => {
+        // Prepend local bin directory to PATH so Render finds bin/yt-dlp
+        const env = { 
+            ...process.env, 
+            PATH: `${LOCAL_BIN_DIR}:${process.env.PATH || ''}:/usr/local/bin:/usr/bin` 
+        };
+
+        exec(command, { env, maxBuffer: 1024 * 1024 * 100 }, (error, stdout, stderr) => {
             if (error) {
                 logger.error({ stderr }, `❌ [SHELL ERROR]: ${error.message}`);
                 return reject(error);
@@ -60,14 +66,17 @@ async function handleMediaDownloader(sock, msg) {
     const outputFilename = `media_${timestamp}.${format}`;
     const outputPath = path.join(TEMP_DIR, outputFilename);
 
+    // Fallback binary lookup (tries ./bin/yt-dlp first, then system yt-dlp)
+    const ytDlpCmd = fs.existsSync(path.join(LOCAL_BIN_DIR, 'yt-dlp')) ? `${path.join(LOCAL_BIN_DIR, 'yt-dlp')}` : 'yt-dlp';
+
     try {
         await sock.sendMessage(remoteJid, { text: "⏳ *Oomly Engine:* Processing media download..." }, { quoted: msg });
 
         let cmd = '';
         if (format === 'mp3' || isSpotify) {
-            cmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${targetUrl}"`;
+            cmd = `${ytDlpCmd} -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${targetUrl}"`;
         } else {
-            cmd = `yt-dlp -f "bestvideo[ext=mp4][filesize<40M]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${targetUrl}"`;
+            cmd = `${ytDlpCmd} -f "bestvideo[ext=mp4][filesize<40M]+bestaudio[ext=m4a]/best[ext=mp4]/best" --merge-output-format mp4 -o "${outputPath}" "${targetUrl}"`;
         }
 
         console.log(`⏳ Executing command: ${cmd}`);
