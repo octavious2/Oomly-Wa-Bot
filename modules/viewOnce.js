@@ -1,5 +1,5 @@
 /**
- * Oomly Technologies - View Once Media Extractor Engine (Deep Protocol Support)
+ * Oomly Technologies - View Once Engine (Diagnostic Build)
  */
 
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
@@ -11,52 +11,58 @@ async function handleViewOnce(sock, msg) {
     try {
         if (!msg || !msg.message) return;
 
-        // 1. Unwrap ephemeral message containers if present
-        let rawMessage = msg.message;
-        if (rawMessage.ephemeralMessage) {
-            rawMessage = rawMessage.ephemeralMessage.message;
+        // Print message top-level keys to terminal for debugging
+        const keys = Object.keys(msg.message);
+        console.log("📥 [UPSERT MESSAGE KEYS]:", keys);
+
+        // Check if message is View Once (direct or unwrapped)
+        let messageContent = msg.message;
+        if (messageContent.ephemeralMessage) {
+            messageContent = messageContent.ephemeralMessage.message;
         }
 
-        // 2. Unpack view once wrappers across all protocol variants
-        const viewOnceContainer = 
-            rawMessage.viewOnceMessage || 
-            rawMessage.viewOnceMessageV2 || 
-            rawMessage.viewOnceMessageV2Extension;
+        const isViewOnce = 
+            messageContent.viewOnceMessage || 
+            messageContent.viewOnceMessageV2 || 
+            messageContent.viewOnceMessageV2Extension ||
+            msg.message?.imageMessage?.viewOnce ||
+            msg.message?.videoMessage?.viewOnce;
 
-        if (!viewOnceContainer || !viewOnceContainer.message) return;
+        if (!isViewOnce) return;
 
-        const innerMessage = viewOnceContainer.message;
-        const mediaType = Object.keys(innerMessage)[0]; // imageMessage or videoMessage
+        console.log("👁️ [VIEW ONCE MATCHED!]: Inspecting structure ->", JSON.stringify(messageContent).slice(0, 300));
 
-        if (mediaType !== 'imageMessage' && mediaType !== 'videoMessage') {
+        // Extract media object
+        const targetMessage = messageContent.viewOnceMessage?.message ||
+                              messageContent.viewOnceMessageV2?.message ||
+                              messageContent.viewOnceMessageV2Extension?.message ||
+                              messageContent;
+
+        const mediaType = targetMessage.imageMessage ? 'imageMessage' : 
+                          targetMessage.videoMessage ? 'videoMessage' : null;
+
+        if (!mediaType) {
+            console.log("⚠️ [VIEW ONCE]: No image or video message found inside container.");
             return;
         }
-
-        console.log(`👁️ [VIEW ONCE DETECTED]: Intercepted ${mediaType}`);
 
         const remoteJid = msg.key.remoteJid;
         const sender = msg.key.participant || remoteJid;
 
-        // 3. Reconstruct a download-compatible message structure
-        const downloadStreamMessage = {
-            key: msg.key,
-            message: innerMessage
-        };
-
-        // 4. Download media buffer directly
+        // Download media buffer
         const buffer = await downloadMediaMessage(
-            downloadStreamMessage,
+            { key: msg.key, message: targetMessage },
             'buffer',
             {},
             { logger }
         );
 
         if (!buffer) {
-            console.error("❌ [VIEW ONCE]: Failed to download media buffer.");
+            console.log("❌ [VIEW ONCE]: Failed to extract media buffer.");
             return;
         }
 
-        const caption = innerMessage[mediaType]?.caption || "";
+        const caption = targetMessage[mediaType]?.caption || "";
         const notificationText = `👁️ *Oomly View Once Extracted*\n👤 *From:* @${sender.split('@')[0]}\n${caption ? `💬 *Caption:* ${caption}` : ''}`;
 
         if (mediaType === 'imageMessage') {
@@ -65,7 +71,7 @@ async function handleViewOnce(sock, msg) {
                 caption: notificationText,
                 mentions: [sender]
             }, { quoted: msg });
-        } else if (mediaType === 'videoMessage') {
+        } else {
             await sock.sendMessage(remoteJid, {
                 video: buffer,
                 caption: notificationText,
@@ -73,10 +79,10 @@ async function handleViewOnce(sock, msg) {
             }, { quoted: msg });
         }
 
-        console.log(`✅ [VIEW ONCE]: Successfully reposted extracted media.`);
+        console.log("✅ [VIEW ONCE]: Extraction complete.");
 
     } catch (err) {
-        console.error("❌ [VIEW ONCE EXCEPTION]:", err.message);
+        console.error("❌ [VIEW ONCE ERROR]:", err.message);
     }
 }
 
