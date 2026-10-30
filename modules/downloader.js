@@ -67,12 +67,16 @@ async function handleMediaDownloader(sock, msg) {
     try {
         await sock.sendMessage(remoteJid, { text: "⏳ *Oomly Engine:* Extracting media from platform..." }, { quoted: msg });
 
-        let cmd = '';
+let cmd = '';
+        const userAgentFlag = `--user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"`;
+
+        // Use python3 -m yt_dlp as a robust fallback for Render and cloud environments where binary PATHs vary
+        const ytDlpBin = 'python3 -m yt_dlp';
+
         if (format === 'mp3') {
-            cmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${targetUrl}"`;
+            cmd = `${ytDlpBin} ${userAgentFlag} -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${targetUrl}"`;
         } else {
-            // Use mobile user-agent to bypass Instagram/TikTok/Facebook bot protection walls
-            cmd = `yt-dlp --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1" -f "best[filesize<50M]/best" -o "${outputPath}" "${targetUrl}"`;
+            cmd = `${ytDlpBin} ${userAgentFlag} -f "best[filesize<50M]/best" -o "${outputPath}" "${targetUrl}"`;
         }
 
         console.log(`⏳ Executing command: ${cmd}`);
