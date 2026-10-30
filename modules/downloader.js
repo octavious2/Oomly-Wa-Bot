@@ -1,11 +1,10 @@
 /**
- * Oomly Technologies - Universal Multi-Platform Media Engine
- * Supports: YouTube, Instagram, Facebook, TikTok, X, Spotify, SoundCloud, etc.
+ * Oomly Technologies - Universal Cloud Media Downloader Engine
  */
 
+const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
 const pino = require('pino');
 
 const logger = pino({ level: 'info' });
@@ -15,126 +14,112 @@ if (!fs.existsSync(TEMP_DIR)) {
     fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-/**
- * Universal resolution fallback layer using cloud-resilient media APIs
- */
-async function resolveUniversalMedia(targetUrl, requestedFormat) {
-    const encoded = encodeURIComponent(targetUrl);
-    
-    // Primary universal API route (handles Insta Reels, FB, TikTok, YT, Twitter)
-    try {
-        const endpoint = requestedFormat === 'mp3' 
-            ? `https://apis.davidcyriltech.my.id/download/audio?url=${encoded}`
-            : `https://apis.davidcyriltech.my.id/download/video?url=${encoded}`;
-
-        const res = await axios.get(endpoint, { timeout: 15000 });
-        if (res.data && res.data.success && (res.data.result.download_url || res.data.result.url)) {
-            return res.data.result.download_url || res.data.result.url;
-        }
-    } catch (e) {
-        logger.warn(`Primary resolver skipped for ${targetUrl}, attempting secondary stream API...`);
-    }
-
-    // Secondary fallback route (handles Spotify, YT, social video clips)
-    try {
-        const altEndpoint = requestedFormat === 'mp3'
-            ? `https://api.siputzx.my.id/api/d/ytmp3?url=${encoded}`
-            : `https://api.siputzx.my.id/api/d/ytmp4?url=${encoded}`;
-
-        const altRes = await axios.get(altEndpoint, { timeout: 15000 });
-        if (altRes.data && (altRes.data.data?.dl || altRes.data.data?.download)) {
-            return altRes.data.data.dl || altRes.data.data.download;
-        }
-    } catch (e) {
-        logger.error(`Secondary resolver failed: ${e.message}`);
-    }
-
-    throw new Error("Unable to extract media stream from provided URL.");
+function runCommand(command) {
+    return new Promise((resolve, reject) => {
+        exec(command, { maxBuffer: 1024 * 1024 * 100 }, (error, stdout, stderr) => {
+            if (error) {
+                logger.error({ stderr }, `❌ [SHELL ERROR]: ${error.message}`);
+                return reject(error);
+            }
+            resolve(stdout ? stdout.trim() : stderr);
+        });
+    });
 }
 
 async function handleMediaDownloader(sock, msg) {
     if (!msg || !msg.message) return;
 
+    // Extract text payload from any message variation
     const text = msg.message.conversation || 
                  msg.message.extendedTextMessage?.text || 
                  msg.message.imageMessage?.caption || "";
 
     if (!text) return;
 
+    console.log(`🔍 [DOWNLOADER INSPECT]: Received text -> "${text}"`);
+
     const remoteJid = msg.key.remoteJid;
     
-    // Command prefixes or raw link triggers
-    const isExplicitAudio = text.startsWith('.song') || text.startsWith('.yta') || text.startsWith('.mp3');
-    const isExplicitVideo = text.startsWith('.video') || text.startsWith('.ytv') || text.startsWith('.mp4');
+    // Automatically extract target URL using Regex
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const match = text.match(urlRegex);
 
-    // Detect social links across major platforms
-    const supportedDomainRegex = /(youtube\.com|youtu\.be|instagram\.com|facebook\.com|fb\.watch|tiktok\.com|twitter\.com|x\.com|spotify\.com|soundcloud\.com)/i;
-    const hasMediaLink = supportedDomainRegex.test(text);
+    if (!match) return;
+    const targetUrl = match[0];
 
-    if (!isExplicitAudio && !isExplicitVideo && !hasMediaLink) return;
+    // Supported platforms check
+    const isYouTube = targetUrl.includes('youtube.com') || targetUrl.includes('youtu.be');
+    const isSpotify = targetUrl.includes('spotify.com');
+    const isInstagram = targetUrl.includes('instagram.com');
+    const isTikTok = targetUrl.includes('tiktok.com');
+    const isFacebook = targetUrl.includes('facebook.com') || targetUrl.includes('fb.watch');
 
-    // Extract target URL from payload
-    let targetUrl = text;
-    if (text.includes(' ')) {
-        const parts = text.split(' ');
-        targetUrl = parts.find(p => p.startsWith('http://') || p.startsWith('https://')) || parts[1];
-    }
+    if (!isYouTube && !isSpotify && !isInstagram && !isTikTok && !isFacebook) return;
 
-    if (!targetUrl || !targetUrl.startsWith('http')) return;
-
-    console.log(`🎯 [UNIVERSAL DOWNLOADER TARGET]: ${targetUrl}`);
+    console.log(`🎯 [DOWNLOADER TARGET]: Resolved URL -> ${targetUrl}`);
 
     const timestamp = Date.now();
-    // Default to MP3 for audio platforms, MP4 for video clips unless specified
-    let isAudioOnly = isExplicitAudio || targetUrl.includes('spotify.com') || targetUrl.includes('soundcloud.com');
-    let format = isAudioOnly ? 'mp3' : 'mp4';
-    
-    const outputPath = path.join(TEMP_DIR, `media_${timestamp}.${format}`);
+    const isAudio = text.startsWith('.yta') || text.startsWith('.song') || isSpotify;
+    let format = isAudio ? 'mp3' : 'mp4';
+    const outputFilename = `media_${timestamp}.${format}`;
+    const outputPath = path.join(TEMP_DIR, outputFilename);
 
     try {
         await sock.sendMessage(remoteJid, { text: "⏳ *Oomly Engine:* Extracting media from platform..." }, { quoted: msg });
 
-        const directDownloadUrl = await resolveUniversalMedia(targetUrl, format);
-
-        console.log(`📥 Streaming media to temporary buffer...`);
-        const writer = fs.createWriteStream(outputPath);
-        const streamResponse = await axios({
-            url: directDownloadUrl,
-            method: 'GET',
-            responseType: 'stream'
-        });
-
-        streamResponse.data.pipe(writer);
-
-        await new Promise((resolve, reject) => {
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-
-        if (!fs.existsSync(outputPath)) {
-            throw new Error("Failed to write stream to local disk buffer.");
+        let cmd = '';
+        if (format === 'mp3') {
+            cmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${targetUrl}"`;
+        } else {
+            // Use mobile user-agent to bypass Instagram/TikTok/Facebook bot protection walls
+            cmd = `yt-dlp --user-agent "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1" -f "best[filesize<50M]/best" -o "${outputPath}" "${targetUrl}"`;
         }
+
+        console.log(`⏳ Executing command: ${cmd}`);
+        await runCommand(cmd);
+
+        // Handle alternate extensions generated by yt-dlp conversions
+        let finalFilepath = outputPath;
+        if (!fs.existsSync(outputPath)) {
+            const files = fs.readdirSync(TEMP_DIR);
+            const matchedFile = files.find(f => f.startsWith(`media_${timestamp}`));
+            if (matchedFile) {
+                finalFilepath = path.join(TEMP_DIR, matchedFile);
+            }
+        }
+
+        if (!fs.existsSync(finalFilepath)) {
+            throw new Error("Target file was not generated by yt-dlp.");
+        }
+
+        console.log(`✅ Media successfully downloaded to ${finalFilepath}`);
 
         if (format === 'mp3') {
             await sock.sendMessage(remoteJid, {
-                audio: { url: outputPath },
+                audio: { url: finalFilepath },
                 mimetype: 'audio/mp4',
                 ptt: false
             }, { quoted: msg });
         } else {
             await sock.sendMessage(remoteJid, {
-                video: { url: outputPath },
-                caption: "🎬 *Downloaded via Oomly Universal Media Engine*"
+                video: { url: finalFilepath },
+                caption: "🎬 *Downloaded via Oomly Media Engine*"
             }, { quoted: msg });
         }
 
     } catch (err) {
-        console.error("❌ [UNIVERSAL DOWNLOADER ERROR]:", err.message);
+        console.error("❌ [DOWNLOADER EXCEPTION]:", err.message);
         await sock.sendMessage(remoteJid, { text: `❌ *Download Failed:* ${err.message}` }, { quoted: msg });
     } finally {
-        if (fs.existsSync(outputPath)) {
-            try { fs.unlinkSync(outputPath); } catch (e) {}
-        }
+        // Clean up temporary files safely
+        try {
+            const files = fs.readdirSync(TEMP_DIR);
+            files.forEach(file => {
+                if (file.startsWith(`media_${timestamp}`)) {
+                    fs.unlinkSync(path.join(TEMP_DIR, file));
+                }
+            });
+        } catch (e) {}
     }
 }
 
