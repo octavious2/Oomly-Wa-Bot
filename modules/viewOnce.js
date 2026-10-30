@@ -1,5 +1,5 @@
 /**
- * Oomly Technologies - View Once Media Extractor Engine
+ * Oomly Technologies - View Once Media Extractor Engine (Deep Protocol Support)
  */
 
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
@@ -11,31 +11,39 @@ async function handleViewOnce(sock, msg) {
     try {
         if (!msg || !msg.message) return;
 
-        // Unpack view once wrappers across different Baileys protocol versions
-        const innerMessage = 
-            msg.message.viewOnceMessage?.message || 
-            msg.message.viewOnceMessageV2?.message || 
-            msg.message.viewOnceMessageV2Extension?.message;
+        // 1. Unwrap ephemeral message containers if present
+        let rawMessage = msg.message;
+        if (rawMessage.ephemeralMessage) {
+            rawMessage = rawMessage.ephemeralMessage.message;
+        }
 
-        if (!innerMessage) return;
+        // 2. Unpack view once wrappers across all protocol variants
+        const viewOnceContainer = 
+            rawMessage.viewOnceMessage || 
+            rawMessage.viewOnceMessageV2 || 
+            rawMessage.viewOnceMessageV2Extension;
 
+        if (!viewOnceContainer || !viewOnceContainer.message) return;
+
+        const innerMessage = viewOnceContainer.message;
         const mediaType = Object.keys(innerMessage)[0]; // imageMessage or videoMessage
-        if (!mediaType || (mediaType !== 'imageMessage' && mediaType !== 'videoMessage')) {
+
+        if (mediaType !== 'imageMessage' && mediaType !== 'videoMessage') {
             return;
         }
 
-        console.log(`👁️ [VIEW ONCE DETECTED]: Intercepted ephemeral ${mediaType}`);
+        console.log(`👁️ [VIEW ONCE DETECTED]: Intercepted ${mediaType}`);
 
         const remoteJid = msg.key.remoteJid;
         const sender = msg.key.participant || remoteJid;
 
-        // Reconstruct a standard message object for downloading
+        // 3. Reconstruct a download-compatible message structure
         const downloadStreamMessage = {
             key: msg.key,
             message: innerMessage
         };
 
-        // Download the media buffer directly via Baileys stream
+        // 4. Download media buffer directly
         const buffer = await downloadMediaMessage(
             downloadStreamMessage,
             'buffer',
@@ -48,7 +56,7 @@ async function handleViewOnce(sock, msg) {
             return;
         }
 
-        const caption = innerMessage[mediaType].caption || "";
+        const caption = innerMessage[mediaType]?.caption || "";
         const notificationText = `👁️ *Oomly View Once Extracted*\n👤 *From:* @${sender.split('@')[0]}\n${caption ? `💬 *Caption:* ${caption}` : ''}`;
 
         if (mediaType === 'imageMessage') {
@@ -56,13 +64,13 @@ async function handleViewOnce(sock, msg) {
                 image: buffer,
                 caption: notificationText,
                 mentions: [sender]
-            });
+            }, { quoted: msg });
         } else if (mediaType === 'videoMessage') {
             await sock.sendMessage(remoteJid, {
                 video: buffer,
                 caption: notificationText,
                 mentions: [sender]
-            });
+            }, { quoted: msg });
         }
 
         console.log(`✅ [VIEW ONCE]: Successfully reposted extracted media.`);
